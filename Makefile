@@ -14,6 +14,7 @@ test: notchroom
 # the binary into PREFIX, the hooks into ~/.claude/settings.json, and a LaunchAgent that starts it at login
 install: notchroom
 	mkdir -p $(PREFIX) $(HOME)/Library/LaunchAgents
+	rm -f $(PREFIX)/notchroom # a fresh file: copying over the old one keeps a stale code signature, and macOS kills it
 	cp notchroom $(PREFIX)/notchroom
 	$(PREFIX)/notchroom --install-hooks
 	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
@@ -38,6 +39,7 @@ uninstall:
 
 # after pulling or editing: rebuild, replace the installed binary, restart it
 update: notchroom
+	rm -f $(PREFIX)/notchroom
 	cp notchroom $(PREFIX)/notchroom
 	launchctl kickstart -k $(GUI)/$(LABEL)
 

@@ -30,6 +30,7 @@ func runApp() {
     var lastParty = started, coverURL: String?
 
     var earWidth: CGFloat = 0 // measured once a second with the data, not on every tick and mouse move
+    var pace: () -> Void = {} // set below, once the timer's work is defined
     func layout(tick: Bool = false) {
         room.notchWidth = notch.width
         let ear = earWidth
@@ -42,6 +43,7 @@ func runApp() {
         let hovering = (room.expanded ? big : small).insetBy(dx: -1, dy: -1).contains(m)
         let was = room.expanded
         room.expanded = hovering || room.keptOpen || Date() < peekUntil
+        if was != room.expanded { pace() } // opening speeds the timer up at once, not at its next slow tick
         if hovering || !room.expanded { room.autoCard = nil }
         panel.ignoresMouseEvents = !room.expanded // closed, clicks fall through to the menu bar
         let target = room.expanded ? big : small
@@ -94,15 +96,25 @@ func runApp() {
     }
 
     everyMinute()
-    let timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+    // what runs how often goes by the clock, not by ticks: the timer is fast while the room is open and slow while
+    // it is closed (see pace())
+    var due: [String: Date] = [:]
+    func every(_ seconds: TimeInterval, _ name: String) -> Bool {
+        guard Date().timeIntervalSince(due[name] ?? .distantPast) >= seconds else { return false }
+        due[name] = Date()
+        return true
+    }
+    due["minute"] = Date(); due["bubble"] = Date() // everyMinute just ran; the weather is fetched right away
+
+    func fire() {
         room.step(animate: room.expanded) // closed, nobody needs to see them walk: they catch up when it opens
-        if room.tick % 10 == 1 {
+        if every(1, "second") {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             notch = notchRect()
             room.agents = loadAgents()
             defer { earWidth = room.earWidth() }
             room.desks = deskProjects(room.agents, room.recentRank.sorted { $0.value < $1.value }.map(\.key))
-            if room.tick % 100 == 1 || room.desks.contains(where: { room.ideas[$0] == nil }) {
+            if every(10, "ideas") || room.desks.contains(where: { room.ideas[$0] == nil }) {
                 room.ideas = Dictionary(uniqueKeysWithValues: room.desks.map { ($0, ideas($0)) })
             }
             if room.desks.contains(where: { room.growth[$0] == nil }) { countCommits() } // a desk that just appeared
@@ -140,9 +152,9 @@ func runApp() {
                 }
             }
         }
-        if room.tick % 600 == 2 { everyMinute() }
-        if room.tick % 6000 == 3 { everyTenMinutes() }
-        if room.tick % 80 == 0 { // next desk with ideas takes the speech bubble
+        if every(60, "minute") { everyMinute() }
+        if every(600, "ten minutes") { everyTenMinutes() }
+        if every(8, "bubble") { // next desk with ideas takes the speech bubble
             let talkers = room.desks.filter { !(room.ideas[$0] ?? []).isEmpty }
             turn += 1
             let p = talkers.isEmpty ? nil : talkers[turn % talkers.count]
@@ -150,6 +162,15 @@ func runApp() {
         }
         layout(tick: true)
     }
-    timer.tolerance = 0.03 // lets macOS batch our wakeups with others'
+    // 10 fps while the room is open, twice a second while it is closed; the tolerance lets macOS batch our wakeups
+    var timer: Timer?
+    pace = {
+        let interval = room.expanded ? 0.1 : 0.5
+        guard timer?.timeInterval != interval else { return }
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in fire() }
+        timer?.tolerance = interval * 0.3
+    }
+    pace()
     app.run()
 }

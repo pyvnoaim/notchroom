@@ -191,11 +191,14 @@ final class Room: NSView {
         return w == 0 ? 0 : (w / 24).rounded(.up) * 24
     }
 
+    /// The collapsed notch's blink, by the clock rather than by ticks: closed, the timer runs slower.
+    var blinkOn: Bool { Int(Date().timeIntervalSince1970 * 2.5) % 2 == 0 }
+
     private var lastEars = ""
     /// Whether the collapsed notch would look different now: other heads or states, another status line, a blink.
     func earsChanged() -> Bool {
         let blinking = agents.contains { $0.state == "waiting" }
-        let now = agents.map { "\($0.id)\($0.state)" }.joined() + (status()?.text ?? "") + (blinking ? "\(tick / 4 % 2)" : "")
+        let now = agents.map { "\($0.id)\($0.state)" }.joined() + (status()?.text ?? "") + (blinking ? "\(blinkOn)" : "")
         defer { lastEars = now }
         return now != lastEars
     }
@@ -210,7 +213,7 @@ final class Room: NSView {
     func drawEars() {
         if let label = statusLabel(), let st = status() {
             let x = (bounds.width + notchWidth) / 2 + 10, y = (bounds.height - label.size.height) / 2
-            if st.color != 0xffb347 || tick / 4 % 2 == 0 { hex(st.color).setFill(); NSRect(x: x, y: bounds.height / 2 - 3, width: 6, height: 6).fill() }
+            if st.color != 0xffb347 || blinkOn { hex(st.color).setFill(); NSRect(x: x, y: bounds.height / 2 - 3, width: 6, height: 6).fill() }
             label.put(at: NSPoint(x: x + 12, y: y))
         }
         scale = 2; oy = ((bounds.height - 8) / 2).rounded()
@@ -219,7 +222,7 @@ final class Room: NSView {
         for (i, a) in shown.enumerated() {
             ox = CGFloat(10 + i * 11)
             sprite([".hhh", "hhff", ".fff"], 0, 1, a)
-            if a.state != "waiting" || tick / 4 % 2 == 0 { px(0, -1, 4, 1, stateColor[a.state] ?? 0x6a6a7a) }
+            if a.state != "waiting" || blinkOn { px(0, -1, 4, 1, stateColor[a.state] ?? 0x6a6a7a) }
         }
         if agents.count > Room.maxHeads {
             let more = text("+\(agents.count - Room.maxHeads)", 10, 0x8a80a8)
