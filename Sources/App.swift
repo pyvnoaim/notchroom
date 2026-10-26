@@ -97,11 +97,14 @@ func runApp() {
             refreshIdeas(room.desks)
 
             // a new permission question peeks the room open with its card
+            // and a sound, for when you're looking somewhere else
             let asking = room.agents.filter { $0.state == "waiting" && $0.ask != nil }
             if let a = asking.first(where: { !asked.contains($0.id + ($0.ask ?? "")) }) {
                 peekUntil = Date().addingTimeInterval(8); room.autoCard = .agent(a.id)
+                if alertSound != "off" { NSSound(named: alertSound)?.play() }
             } else if room.agents.contains(where: { $0.state == "waiting" && $0.ask == nil && !asked.contains($0.id) }) {
                 peekUntil = Date().addingTimeInterval(4)
+                if alertSound != "off" { NSSound(named: alertSound)?.play() }
             }
             asked = Set(room.agents.filter { $0.state == "waiting" }.flatMap { [$0.id, $0.id + ($0.ask ?? "")] })
 

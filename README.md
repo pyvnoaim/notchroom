@@ -13,7 +13,8 @@ Running several Claude Code sessions at once means tabbing around to find out wh
 
 - **See every session at a glance.** Working, waiting for you, or idle, each one drawn where it is. Collapsed, the notch shows a head per session and one line of news: who needs you, or what the latest work is.
 - **Answer permission requests from the notch.** When a session asks to run something, the room opens with the full command and **Allow**, **Deny** and **Terminal** buttons.
-- **Jump to the right terminal.** Click a character to bring its terminal to the front (in Ghostty, the exact terminal).
+- **Jump to the right terminal, or start a new one.** Click a character to bring its terminal to the front (in Ghostty, the exact terminal). Click an empty desk to start a new Claude session in that project.
+- **A sound when you're needed.** For when you're looking at something else.
 - **What everyone is doing.** Hover a desk: "Running make test", "Editing Room.swift", plus the project's commit count.
 - **Ideas on every desk.** Once a day per project, Claude Haiku reads the README and recent commits and pitches a few small features, which show up as speech bubbles. Click one to file it in [stash](https://github.com/pyvnoaim/stash).
 - **The real sky.** Sunrise, dusk and night follow the sun where your time zone says you are, and the windows show rain or snow when it's actually raining or snowing there. At night the lamp comes on.
@@ -56,14 +57,17 @@ Hover the notch to open the room; it closes when the mouse leaves. To keep it op
 
 | Hover | Shows | Click |
 | --- | --- | --- |
-| A character or a desk | the project, what each session is doing, any permission question, the ideas | the character's terminal comes to the front |
+| A character | the project, what each session is doing, any permission question, the ideas | its terminal comes to the front |
+| A desk | the same, with **Open terminal** and **New session** | an empty desk starts a new Claude session there, a busy one brings its terminal forward |
 | An idea in a card | | files it in stash and takes it off the desk |
 | The wall clock | today's active time, tool calls and sessions, per project | |
 | The strip behind the notch | | keeps the room open while you work; click again to close |
 | The record player | the song, with its cover | |
 | The cat | where it is napping | it says hi |
 
-The room also opens by itself for a few seconds when a session starts waiting for you, or when a party starts.
+The room also opens by itself for a few seconds, with a sound, when a session starts waiting for you, and when a party starts.
+
+A new session opens as a Ghostty tab (or window) in the project's folder with `claude` typed into your shell, so the tab stays a normal shell when you quit it. Without Ghostty it opens in Terminal.
 
 ### Permission requests
 
@@ -80,6 +84,8 @@ Settings live in `~/.claude/notchroom/config`, one `key = value` per line:
 projects = ~/code
 # repos that never get a desk
 skip = old-experiment, scratch
+# played when a session starts needing you: Glass (default), Tink, Ping, Pop, ... (/System/Library/Sounds), or off
+sound = Tink
 ```
 
 ## Integrations

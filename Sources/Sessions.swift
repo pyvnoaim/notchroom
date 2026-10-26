@@ -66,6 +66,24 @@ func growth(_ project: String) -> (commits: Int, released: Bool) {
             !capture(["git", "-C", path, "tag", "-l", "v[1-9]*"]).isEmpty)
 }
 
+/// Opens a new Claude Code session in a project: a Ghostty tab (or window) that starts in the project and types
+/// `claude` into your shell, so the tab stays a normal shell afterwards; Terminal.app when Ghostty isn't installed.
+func newSession(_ project: String) {
+    let path = "\(devDir.path)/\(project)"
+    let ghostty = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mitchellh.ghostty") != nil
+    let script = ghostty
+        ? ["on run argv", "tell application \"Ghostty\"", "set cfg to new surface configuration",
+           "set initial working directory of cfg to item 1 of argv", "set initial input of cfg to \"claude\" & linefeed",
+           "if (count of windows) > 0 then", "new tab in front window with configuration cfg", "else",
+           "new window with configuration cfg", "end if", "activate", "end tell", "end run"]
+        : ["on run argv", "tell application \"Terminal\"", "do script \"cd \" & quoted form of (item 1 of argv) & \" && claude\"",
+           "activate", "end tell", "end run"]
+    let run = Process()
+    run.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    run.arguments = script.flatMap { ["-e", $0] } + [path] // the path as an argument, never spliced into the script
+    try? run.run()
+}
+
 /// A process's parent, from the kernel's process table. Unlike proc_pidinfo this also works across processes owned
 /// by root, such as the `login` that sits between a terminal app and its shells.
 func parent(_ pid: Int32) -> Int32? {

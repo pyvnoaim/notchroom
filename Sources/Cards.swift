@@ -55,9 +55,12 @@ extension Room {
                 c.lines.append((what, 0xe8e3f5, 0x5fd38d, nil))
             }
         }
-        if c.buttons.isEmpty, let pid = here.first?.pid { c.buttons = [("Open terminal", 0x8a80a8, { focusTerminal(pid) })] }
+        if asker != nil { return c } // a permission question: keep the card short, the buttons in reach
+        if c.buttons.isEmpty {
+            c.buttons = (here.first?.pid.map { pid in [("Open terminal", UInt32(0x8a80a8), { focusTerminal(pid) })] } ?? [])
+                + [("New session", 0x5fd38d, { newSession(proj) })]
+        }
         let list = ideas[proj] ?? []
-        if c.buttons.count > 1 { return c } // a permission question: keep the card short, the buttons in reach
         if list.isEmpty {
             let git = FileManager.default.fileExists(atPath: "\(devDir.path)/\(proj)/.git")
             c.lines.append((git ? "no ideas yet, Haiku is on it" : "not a git repo, no ideas", 0x8a80a8, nil, nil))

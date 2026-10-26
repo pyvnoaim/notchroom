@@ -446,7 +446,8 @@ final class Room: NSView {
         switch hit(m) {
         case .pin: keptOpen.toggle(); needsDisplay = true
         case .agent(let id): if let pid = agents.first(where: { $0.id == id })?.pid { focusTerminal(pid) }
-        case .desk(let p): if let pid = agents.first(where: { $0.project == p })?.pid { focusTerminal(pid) }
+        case .desk(let p): // an empty desk starts a session, a busy one brings its terminal forward
+            if let pid = agents.first(where: { $0.project == p })?.pid { focusTerminal(pid) } else { newSession(p) }
         case .cat: cat.meow = Date().addingTimeInterval(2)
         default: break
         }
