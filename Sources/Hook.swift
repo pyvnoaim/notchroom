@@ -1,6 +1,6 @@
 // `notchroom --hook`: Claude Code runs this on every hook event. It records each session's state in
 // ~/.claude/notchroom/<session>.json, logs the event for the whiteboard, flags parties, and holds a
-// permission request open while the notch can answer it.
+// permission request open while the notch can answer it (see Answer.swift).
 import Foundation
 
 /// Hook event -> character state; nil leaves the state as it was (SessionEnd is handled before this).
@@ -36,13 +36,6 @@ func doing(_ tool: String, _ input: [String: Any]) -> String {
     }
     let line = what.split(separator: "\n").first.map(String.init) ?? what
     return line.count > 60 ? line.prefix(59) + "…" : line
-}
-
-/// The permission question in full enough to decide on: the whole command, the whole path.
-func ask(_ tool: String, _ input: [String: Any]) -> String {
-    if tool == "Bash", let c = input["command"] as? String { return "Bash: " + String(c.prefix(300)) }
-    if let f = input["file_path"] as? String { return "\(tool): \(f)" }
-    return doing(tool, input)
 }
 
 /// A Bash command worth a party when it succeeds (PostToolUse only fires on success): a push or a test run.
@@ -87,19 +80,6 @@ func log(_ fields: [String]) {
     close(fd)
 }
 
-/// Waits for Allow / Deny clicked in the notch, only while the room is running. nil leaves it to the terminal's dialog.
-func awaitAnswer(_ id: String) -> String? {
-    let fm = FileManager.default, f = answerDir.appendingPathComponent(id)
-    try? fm.removeItem(at: f) // a late click on an earlier request must not answer this one
-    guard let alive = mtime(aliveFile.path), Date().timeIntervalSince(alive) < 3 else { return nil }
-    let deadline = Date().addingTimeInterval(approveWait)
-    while Date() < deadline {
-        if let a = try? String(contentsOf: f, encoding: .utf8) { try? fm.removeItem(at: f); return a == "terminal" ? nil : a }
-        usleep(100_000)
-    }
-    return nil
-}
-
 func hook() {
     // the room's own `claude -p` runs (ideas, filing to stash) must not show up as agents
     guard ProcessInfo.processInfo.environment["NOTCHROOM_NO_HOOK"] == nil,
@@ -120,24 +100,32 @@ func hook() {
     out["seen"] = Date().timeIntervalSince1970
     if let pid = claudePid() { out["pid"] = Int(pid) }
     switch event {
-    case "UserPromptSubmit": out["doing"] = "Thinking"; out["ask"] = nil
-    case "PreToolUse": out["doing"] = doing(tool, input); out["ask"] = nil
+    case "UserPromptSubmit", "PreToolUse":
+        out["doing"] = event == "PreToolUse" ? doing(tool, input) : "Thinking"
+        for k in ["ask", "askId", "askSocket", "askAllow"] { out[k] = nil }
     case "PostToolUse", "PostToolUseFailure":
-        out["ask"] = nil
+        for k in ["ask", "askId", "askSocket", "askAllow"] { out[k] = nil }
         if event == "PostToolUse", tool == "Bash", let kind = partyKind(input["command"] as? String ?? "") {
             try? "\(Date().timeIntervalSince1970)\t\(project(of: cwd))\t\(kind)".write(to: partyFile, atomically: true, encoding: .utf8)
         }
-    case "Stop", "SessionStart": out["doing"] = nil; out["ask"] = nil
-    case "PermissionRequest": out["ask"] = ask(tool, input)
+    case "Stop", "SessionStart": for k in ["doing", "ask", "askId", "askSocket", "askAllow"] { out[k] = nil }
+    case "PermissionRequest":
+        let (text, approvable) = askText(tool, input)
+        try? fm.createDirectory(at: answerDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        out["ask"] = text; out["askAllow"] = approvable
+        out["askId"] = UUID().uuidString
+        out["askSocket"] = answerDir.appendingPathComponent(String(id.prefix(12)) + ".sock").path
     default: break
     }
     try? JSONSerialization.data(withJSONObject: out).write(to: file, options: .atomic)
 
-    if event == "PermissionRequest", let answer = awaitAnswer(id) {
+    if event == "PermissionRequest", let sock = out["askSocket"] as? String, let request = out["askId"] as? String,
+       let answer = awaitAnswer(sock, request), answer == "deny" || out["askAllow"] as? Bool == true {
         let decision: [String: Any] = answer == "allow" ? ["behavior": "allow"] : ["behavior": "deny", "message": "Denied from the notch."]
         let reply: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": decision]]
         if let d = try? JSONSerialization.data(withJSONObject: reply) { FileHandle.standardOutput.write(d) }
-        out["state"] = "working"; out["ask"] = nil
+        out["state"] = "working"
+        for k in ["ask", "askId", "askSocket", "askAllow"] { out[k] = nil }
         try? JSONSerialization.data(withJSONObject: out).write(to: file, options: .atomic)
     }
 }

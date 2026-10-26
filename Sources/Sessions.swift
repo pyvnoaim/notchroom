@@ -1,7 +1,10 @@
 // The sessions the hook recorded, the projects they belong to, and reaching their terminals.
 import AppKit
 
-struct Agent { let id: String, state: String, project: String, seed: Int, pid: Int32?, doing: String?, ask: String?, seen: Double }
+struct Agent {
+    let id: String, state: String, project: String, seed: Int, pid: Int32?, doing: String?, seen: Double
+    var ask: String? = nil, askId: String? = nil, askSocket: String? = nil, askAllow = false // a permission request, if one is open
+}
 
 /// The project a session belongs to: the folder right under ~/dev, else the cwd's own name.
 func project(of cwd: String) -> String {
@@ -20,7 +23,8 @@ func loadAgents() -> [Agent] {
         let id = f.deletingPathExtension().lastPathComponent
         return Agent(id: id, state: j["state"] as? String ?? "idle", project: project(of: j["cwd"] as? String ?? ""),
                      seed: id.utf8.reduce(7) { abs($0 &* 31 &+ Int($1)) }, pid: (j["pid"] as? Int).map(Int32.init),
-                     doing: j["doing"] as? String, ask: j["ask"] as? String, seen: j["seen"] as? Double ?? 0)
+                     doing: j["doing"] as? String, seen: j["seen"] as? Double ?? 0, ask: j["ask"] as? String,
+                     askId: j["askId"] as? String, askSocket: j["askSocket"] as? String, askAllow: j["askAllow"] as? Bool ?? false)
     }
 }
 
@@ -85,8 +89,3 @@ func focusTerminal(_ pid: Int32) {
     try? run.run()
 }
 
-/// Allow / Deny / Terminal for a waiting session's permission request; the hook is polling for this file.
-func answer(_ id: String, _ a: String) {
-    try? FileManager.default.createDirectory(at: answerDir, withIntermediateDirectories: true)
-    try? a.write(to: answerDir.appendingPathComponent(id), atomically: true, encoding: .utf8)
-}

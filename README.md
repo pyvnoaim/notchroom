@@ -68,6 +68,8 @@ The room also opens by itself for a few seconds when a session starts waiting fo
 
 When a session needs permission, its card shows the full command and three buttons. **Allow** and **Deny** answer for you; **Terminal** hands the question back to the terminal's own prompt. If nothing is clicked within 20 seconds, the terminal gets it anyway. notchroom only holds a request while it is running, so with notchroom closed, permission prompts behave exactly as before.
 
+**Allow** is only offered when the card shows the whole request: a shell command of up to 300 characters, or a file tool with its full path. Anything longer or any other tool can be denied from the notch, but has to be allowed in the terminal.
+
 ## Configuration
 
 Settings live in `~/.claude/notchroom/config`, one `key = value` per line:
@@ -97,10 +99,19 @@ Claude Code runs `notchroom --hook` on every hook event (session start and end, 
 | `~/.claude/notchroom/log/` | one line per hook event for the whiteboard, kept for a week |
 | `~/.claude/notchroom/ideas/` | each project's ideas, refreshed daily |
 | `~/.claude/notchroom/party` | the last push or green test run |
-| `~/.claude/notchroom/answers/` | Allow / Deny clicks, picked up by the waiting hook |
+| `~/.claude/notchroom/answers/` | the socket a waiting permission request listens on (see Security) |
 | `~/.claude/notchroom/config` | your settings |
 
 A session that crashes without saying goodbye disappears once its process is gone. Commit counts come from `git`, the sun's position is computed locally, and the coordinates are the main city of your time zone (from the system's `zone.tab`), so notchroom never asks for your location.
+
+## Security
+
+Answering a permission request from the notch must not become a way around it. A waiting hook listens on a Unix socket, readable only by you, and accepts an answer only when:
+
+- the process on the other end runs the notchroom binary itself (checked by its process id, not by anything it says), so a script, or a background command an agent started earlier, can't approve anything
+- the answer names the request it is for (a random id per request), so a late click can't answer a newer request than the one it was shown
+
+What this can't stop is something that already controls your Mac as you, for example by sending synthetic clicks with Accessibility access. The `--test` self-check attacks the socket both ways on every run.
 
 ## Privacy
 
@@ -115,7 +126,7 @@ Everything else stays in `~/.claude/notchroom`.
 
 ```sh
 make              # build ./notchroom
-make test         # the self-check: hook parsing, ideas, stats, the sun, coordinates
+make test         # the self-check: hook parsing, the answer channel, ideas, stats, the sun, coordinates
 ./notchroom       # run it in the foreground (stop the installed one first: launchctl bootout gui/$(id -u)/xyz.pyvno.notchroom)
 make screenshots  # redraw the pictures in docs/ from made-up projects
 ```
@@ -129,6 +140,7 @@ Sources/
 ├── Pixels.swift     colors, cached bitmaps and text, sprites
 ├── Hook.swift       --hook: turns Claude Code hook events into state files
 ├── Sessions.swift   sessions, projects, desks, focusing a terminal
+├── Answer.swift     the checked channel that carries Allow / Deny from the notch to a waiting hook
 ├── Ideas.swift      per-project ideas from claude -p, filing them in stash
 ├── Today.swift      the whiteboard's numbers
 ├── Sky.swift        sun position and weather

@@ -32,5 +32,26 @@ func test() {
     if abs(up - 61) > 1.5 || down > -5 { fail("sunElevation noon \(up), midnight \(down)") }
     let s = stats("100\ta\tkova\tPreToolUse\tBash\n160\ta\tkova\tPostToolUse\tBash\n1000\ta\tkova\tPreToolUse\tRead\n1010\tb\tcue\tStop\t\n")
     if s.tools != 2 || s.sessions != 2 || s.active != 60 || s.perProject["kova"] != 2 { fail("stats \(s)") }
+    if askText("Bash", ["command": "ls"]) != ("Bash: ls", true) { fail("askText short") }
+    if askText("Bash", ["command": String(repeating: "x", count: askLimit + 1)]).approvable { fail("askText long command approvable") }
+    if askText("WebFetch", ["url": "https://x"]).approvable || !askText("Edit", ["file_path": "/a/b"]).approvable { fail("askText tools") }
+
+    // the answer channel: a stranger (nc) with the right id and this binary with a wrong id are both ignored;
+    // only this binary with the right id gets through
+    let sock = NSTemporaryDirectory() + "nr-\(getpid()).sock", req = UUID().uuidString
+    var answered: String?
+    let done = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async { answered = listenForAnswer(sock, req, timeout: 5); done.signal() }
+    usleep(300_000)
+    let nc = Process()
+    nc.executableURL = URL(fileURLWithPath: "/bin/sh")
+    nc.arguments = ["-c", "printf '%s deny' \"$1\" | nc -U \"$2\"", "sh", req, sock]
+    try? nc.run(); nc.waitUntilExit()
+    usleep(200_000)
+    answer(sock, "not-" + req, "deny")
+    usleep(200_000)
+    answer(sock, req, "allow")
+    done.wait()
+    if answered != "allow" { fail("answer channel -> \(answered ?? "nil"), want allow") }
     print("ok")
 }

@@ -33,10 +33,12 @@ extension Room {
             if let q = a.ask, a.state == "waiting" {
                 let left = max(0, Int(a.seen + approveWait - Date().timeIntervalSince1970))
                 c.lines.append((q, 0xffb347, 0xffb347, nil))
-                if left > 0 {
-                    c.lines.append(("answer here within \(left)s, or in the terminal", 0x8a80a8, nil, nil))
-                    c.buttons = [("Allow", 0x5fd38d, { answer(a.id, "allow") }), ("Deny", 0xe05d5d, { answer(a.id, "deny") }),
-                                 ("Terminal", 0x8a80a8, { answer(a.id, "terminal"); if let pid = a.pid { focusTerminal(pid) } })]
+                if left > 0, let sock = a.askSocket, let req = a.askId {
+                    c.lines.append((a.askAllow ? "answer here within \(left)s, or in the terminal"
+                                               : "too much to show here: allow it in the terminal", 0x8a80a8, nil, nil))
+                    c.buttons = (a.askAllow ? [("Allow", 0x5fd38d, { answer(sock, req, "allow") })] : [])
+                        + [("Deny", 0xe05d5d, { answer(sock, req, "deny") }),
+                           ("Terminal", 0x8a80a8, { answer(sock, req, "terminal"); if let pid = a.pid { focusTerminal(pid) } })]
                 } else if let pid = a.pid {
                     c.buttons = [("Open terminal", 0x8a80a8, { focusTerminal(pid) })]
                 }
