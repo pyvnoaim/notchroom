@@ -36,6 +36,7 @@ final class Room: NSView {
     var cat = Cat()
     var expanded = false
     var keptOpen = false // clicked open: stays open without hovering
+    var opened: Target? // clicked: its card stays up until you click it again or elsewhere
     var autoCard: Target? // shown without hovering, while the room peeks open for a permission request
     var tick = 0
     var mouse: NSPoint?
@@ -72,8 +73,8 @@ final class Room: NSView {
 
     func deskOrigin(_ d: Int) -> (Int, Int) { (6 + d % 3 * 46, d < 3 ? 44 : 18) }
 
-    /// A desk's hover zone. The six cells tile the work area edge to edge, so moving between desks never drops the card.
-    func cell(_ d: Int) -> NSRect { d < 3 ? box(1 + d % 3 * 46, 31, 46, 29) : box(1 + d % 3 * 46, 0, 46, 31) }
+    /// A desk's hover zone: the desk, its monitor, chair and nameplate, with a small margin.
+    func cell(_ d: Int) -> NSRect { let (x, y) = deskOrigin(d); return box(x - 3, y - 13, 30, 27) }
 
     /// Where each agent belongs right now: its desk chair, beside its desk (waving), or a spot on the couch.
     func stations() -> [String: (Int, Int)] {
@@ -427,16 +428,11 @@ final class Room: NSView {
         label.put(at: NSPoint(x: ox + 10, y: band.midY - label.size.height / 2))
         targets.insert((band, .pin), at: 0)
 
-        // party banner, else a hover card, else an idea bubble
+        // party banner, else the clicked card, else an idea bubble
         if let p = partyNow, let a = anchors[p.project] {
             drawBubble(p.kind, at: a, icon: star)
         }
-        let hovered: Target? = {
-            if let p = pinned, let m = mouse, p.card.insetBy(dx: -10, dy: -10).contains(m) { return p.target } // keep it while you reach for its buttons
-            if let m = mouse, let t = hit(m) { return t }
-            return autoCard
-        }()
-        if let t = hovered, let anchor = targets.last(where: { $0.target == t })?.rect, let card = card(for: t) {
+        if let t = opened ?? autoCard, let anchor = targets.last(where: { $0.target == t })?.rect, let card = card(for: t) {
             pinned = (t, drawCard(card, beside: anchor))
         } else {
             pinned = nil
@@ -456,13 +452,10 @@ final class Room: NSView {
     override func mouseDown(with e: NSEvent) {
         let m = convert(e.locationInWindow, from: nil)
         if let c = clicks.last(where: { $0.rect.contains(m) }) { c.action(); needsDisplay = true; return }
-        switch hit(m) {
-        case .pin: keptOpen.toggle(); needsDisplay = true
-        case .agent(let id): if let pid = agents.first(where: { $0.id == id })?.pid { focusTerminal(pid) }
-        case .desk(let p): // an empty desk starts a session, a busy one brings its terminal forward
-            if let pid = agents.first(where: { $0.project == p })?.pid { focusTerminal(pid) } else { newSession(p) }
-        case .cat: cat.meow = Date().addingTimeInterval(2)
-        default: break
-        }
+        if pinned?.card.contains(m) == true { opened = nil; needsDisplay = true; return } // a click on the card that missed its rows and buttons closes it
+        let t = hit(m)
+        if t == .pin { keptOpen.toggle() } else { opened = t == opened ? nil : t } // a second click, or a click elsewhere, closes it
+        if t == .cat { cat.meow = Date().addingTimeInterval(2) }
+        needsDisplay = true
     }
 }

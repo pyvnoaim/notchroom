@@ -22,7 +22,7 @@ extension Room {
     }
 
     /// A project's card: who is on it and doing what, a permission question with its buttons, and the ideas.
-    /// At most one question gets buttons (the hovered session's, else the first), built from that request alone.
+    /// At most one question gets buttons (the clicked session's, else the first), built from that request alone.
     func projectCard(_ proj: String, focus: String? = nil) -> Card {
         let here = agents.filter { $0.project == proj }
         let chip: (String, UInt32) =
@@ -114,6 +114,11 @@ extension Room {
 
     /// Draws a card beside what it is about (right, else left), never on top of it; returns where it went.
     func drawCard(_ c: Card, beside r: NSRect) -> NSRect {
+        var c = c
+        let fit = bounds.height - 14 - (c.buttons.isEmpty ? 0 : 30) - 42 // room for lines under title and above buttons
+        // ponytail: drop trailing lines (the ideas) until it fits, so the buttons never fall off the bottom
+        var heights = c.lines.map { ceil(text($0.text, 11, $0.color, width: 250).size.height) + 4 }
+        while heights.count > 1, heights.reduce(0, +) > fit { heights.removeLast(); c.lines.removeLast() }
         let title = text(c.title, 13, 0xffffff), chip = text(c.chip.0, 10, c.chip.1)
         let pic: CGFloat = c.image == nil ? 0 : 72, textW: CGFloat = 250
         let lines = c.lines.map { text($0.text, 11, $0.color, width: textW) }, sizes = lines.map(\.size)

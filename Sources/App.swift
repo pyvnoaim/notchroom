@@ -45,6 +45,7 @@ func runApp() {
         room.expanded = hovering || room.keptOpen || Date() < peekUntil
         if was != room.expanded { pace() } // opening speeds the timer up at once, not at its next slow tick
         if hovering || !room.expanded { room.autoCard = nil }
+        if !room.expanded { room.opened = nil }
         panel.ignoresMouseEvents = !room.expanded // closed, clicks fall through to the menu bar
         let target = room.expanded ? big : small
         if target != lastTarget {

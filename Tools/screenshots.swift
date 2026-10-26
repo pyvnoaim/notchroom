@@ -122,6 +122,7 @@ do {
     RunLoop.main.run(until: Date().addingTimeInterval(0.1))
     let v = demoRoom()
     v.mouse = NSPoint(x: 14 + 116 * 3, y: 10 + 10 * 3)
+    v.opened = .agent("a3")
     png(framed(v, canvas: canvas), "permission.png")
 }
 
@@ -129,6 +130,7 @@ do {
 do {
     let v = demoRoom()
     v.mouse = NSPoint(x: 14 + 20 * 3, y: 10 + 45 * 3)
+    v.opened = .desk(v.desks[0])
     png(framed(v, canvas: canvas), "card.png")
 }
 
