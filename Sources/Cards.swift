@@ -31,12 +31,13 @@ extension Room {
             : here.isEmpty ? ("no agent", 0x8a80a8) : ("idle", 0x9fb4ff)
         var c = Card(title: proj, chip: chip)
         if let g = growth[proj], g.commits > 0 { c.lines.append(("\(g.commits) commits" + (g.released ? " · v1 shipped" : ""), 0x8a80a8, nil, nil)) }
-        let asking = here.filter { $0.state == "waiting" && $0.ask != nil }
+        // who gets the buttons is decided from the open requests themselves, never from the session files
+        let asking = here.filter { answers.question(for: $0.id) != nil }
         let asker = asking.first { $0.id == focus } ?? asking.first
         for a in here {
-            if a.ask != nil, a.state == "waiting", a.id != asker?.id {
+            if answers.question(for: a.id) != nil, a.id != asker?.id {
                 c.lines.append(("another session here is asking too: hover it", 0xffb347, 0xffb347, nil))
-            } else if let q = answers.question(for: a.id) {
+            } else if a.id == asker?.id, let q = answers.question(for: a.id) {
                 // the question and its buttons as the waiting hook itself sent them, nothing from the session's file
                 let left = max(0, Int(q.since.timeIntervalSinceNow + approveWait))
                 c.lines.append((q.text, 0xffb347, 0xffb347, nil))
