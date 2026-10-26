@@ -36,16 +36,18 @@ extension Room {
         for a in here {
             if a.ask != nil, a.state == "waiting", a.id != asker?.id {
                 c.lines.append(("another session here is asking too: hover it", 0xffb347, 0xffb347, nil))
-            } else if let q = a.ask, a.state == "waiting" {
-                let left = max(0, Int(a.seen + approveWait - Date().timeIntervalSince1970))
-                c.lines.append((q, 0xffb347, 0xffb347, nil))
-                if left > 0, let req = a.askId {
-                    c.lines.append((a.askAllow ? "answer here within \(left)s, or in the terminal"
-                                               : "too much to show here: allow it in the terminal", 0x8a80a8, nil, nil))
-                    c.buttons = (a.askAllow ? [("Allow", 0x5fd38d, { answers.answer(req, "allow") })] : [])
-                        + [("Deny", 0xe05d5d, { answers.answer(req, "deny") }),
-                           ("Terminal", 0x8a80a8, { answers.answer(req, "terminal"); if let pid = a.pid { focusTerminal(pid) } })]
-                } else if let pid = a.pid {
+            } else if let q = answers.question(for: a.id) {
+                // the question and its buttons as the waiting hook itself sent them, nothing from the session's file
+                let left = max(0, Int(q.since.timeIntervalSinceNow + approveWait))
+                c.lines.append((q.text, 0xffb347, 0xffb347, nil))
+                c.lines.append((q.approvable ? "answer here within \(left)s, or in the terminal"
+                                             : "too much to show here: allow it in the terminal", 0x8a80a8, nil, nil))
+                c.buttons = (q.approvable ? [("Allow", 0x5fd38d, { answers.answer(q.request, "allow") })] : [])
+                    + [("Deny", 0xe05d5d, { answers.answer(q.request, "deny") }),
+                       ("Terminal", 0x8a80a8, { answers.answer(q.request, "terminal"); if let pid = a.pid { focusTerminal(pid) } })]
+            } else if a.ask != nil, a.state == "waiting" {
+                c.lines.append(("waiting for permission: answer it in the terminal", 0xffb347, 0xffb347, nil))
+                if let pid = a.pid {
                     c.buttons = [("Open terminal", 0x8a80a8, { focusTerminal(pid) })]
                 }
             } else if let what = a.doing, a.state == "working" {

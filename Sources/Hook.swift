@@ -99,31 +99,31 @@ func hook() {
     out["cwd"] = cwd
     out["seen"] = Date().timeIntervalSince1970
     if let pid = claudePid() { out["pid"] = Int(pid) }
+    var question: (text: String, approvable: Bool)?
     switch event {
     case "UserPromptSubmit", "PreToolUse":
         out["doing"] = event == "PreToolUse" ? doing(tool, input) : "Thinking"
-        for k in ["ask", "askId", "askAllow"] { out[k] = nil }
+        out["ask"] = nil
     case "PostToolUse", "PostToolUseFailure":
-        for k in ["ask", "askId", "askAllow"] { out[k] = nil }
+        out["ask"] = nil
         if event == "PostToolUse", tool == "Bash", let kind = partyKind(input["command"] as? String ?? "") {
             try? "\(Date().timeIntervalSince1970)\t\(project(of: cwd))\t\(kind)".write(to: partyFile, atomically: true, encoding: .utf8)
         }
-    case "Stop", "SessionStart": for k in ["doing", "ask", "askId", "askAllow"] { out[k] = nil }
+    case "Stop", "SessionStart": out["doing"] = nil; out["ask"] = nil
     case "PermissionRequest":
         let (text, approvable) = askText(tool, input)
-        out["ask"] = text; out["askAllow"] = approvable
-        out["askId"] = UUID().uuidString
+        out["ask"] = text // only to place the session in the room; the card's question comes over XPC
+        question = (text, approvable)
     default: break
     }
     try? JSONSerialization.data(withJSONObject: out).write(to: file, options: .atomic)
 
-    if event == "PermissionRequest", let request = out["askId"] as? String,
-       let answer = awaitAnswer(request), answer == "deny" || out["askAllow"] as? Bool == true {
+    if let q = question, let answer = awaitAnswer(UUID().uuidString, session: id, text: q.text, approvable: q.approvable) {
         let decision: [String: Any] = answer == "allow" ? ["behavior": "allow"] : ["behavior": "deny", "message": "Denied from the notch."]
         let reply: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": decision]]
         if let d = try? JSONSerialization.data(withJSONObject: reply) { FileHandle.standardOutput.write(d) }
         out["state"] = "working"
-        for k in ["ask", "askId", "askAllow"] { out[k] = nil }
+        out["ask"] = nil
         try? JSONSerialization.data(withJSONObject: out).write(to: file, options: .atomic)
     }
 }

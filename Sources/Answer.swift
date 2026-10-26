@@ -1,7 +1,8 @@
 // Answering a permission request from the notch, over XPC. The room offers a Mach service that only launchd can
-// hand out (declared in its LaunchAgent), and both ends insist the other is this very binary by code signature,
-// checked by macOS against the running process (exec-safe). So nothing else running as you, a background command
-// an agent started included, can answer, and each answer is the reply to its own request, never a newer one.
+// hand out (declared in its LaunchAgent), and both ends insist the other is this very build by code signature,
+// checked by macOS against the running process (exec-safe; the build has the hardened runtime, so nothing can be
+// injected into it either). The question travels with the request, and the card's question and buttons come from
+// there alone, never from files anything could write. Each answer is the reply to its own request.
 import Foundation
 import Security
 
@@ -9,7 +10,7 @@ let answerService = "xyz.pyvno.notchroom.answers" // must match MachServices in 
 let askLimit = 200 // a command longer than this, once made visible, is answered in the terminal
 
 @objc protocol AnswerService {
-    func ask(_ request: String, withReply reply: @escaping (String) -> Void)
+    func ask(_ request: String, session: String, text: String, approvable: Bool, withReply reply: @escaping (String) -> Void)
 }
 
 /// A code requirement that only this exact build meets: its own code directory hash.
@@ -21,16 +22,13 @@ let selfRequirement: String? = {
     return "cdhash H\"" + hash.map { String(format: "%02x", $0) }.joined() + "\""
 }()
 
-/// The text as it will really run: control, format and bidi characters spelled out as \u{…}, newlines as ⏎,
-/// so the card can't show something other than the command.
+/// The text exactly as it will run, in printable ASCII: newlines as ⏎, everything else outside ASCII (accents,
+/// combining marks, invisible and direction-changing characters alike) spelled out as \u{…}. What is shown can't
+/// hide or reorder anything, and its length is its real length.
 func visible(_ s: String) -> String {
     s.unicodeScalars.map { u -> String in
         if u == "\n" { return "⏎ " }
-        switch u.properties.generalCategory {
-        case .control, .format, .lineSeparator, .paragraphSeparator, .privateUse, .unassigned, .surrogate:
-            return String(format: "\\u{%04X}", u.value)
-        default: return String(u)
-        }
+        return (0x20...0x7E).contains(u.value) ? String(u) : String(format: "\\u{%04X}", u.value)
     }.joined()
 }
 
@@ -49,7 +47,8 @@ func askText(_ tool: String, _ input: [String: Any]) -> (text: String, approvabl
 
 /// The hook's side: ask the room and wait for the click. nil (room not running, not reachable, no answer in time,
 /// or "terminal") leaves it to the terminal's prompt.
-func awaitAnswer(_ request: String, via connect: () -> NSXPCConnection = { NSXPCConnection(machServiceName: answerService) },
+func awaitAnswer(_ request: String, session: String, text: String, approvable: Bool,
+                 via connect: () -> NSXPCConnection = { NSXPCConnection(machServiceName: answerService) },
                  timeout: TimeInterval = approveWait) -> String? {
     guard let requirement = selfRequirement else { return nil }
     let conn = connect()
@@ -60,14 +59,17 @@ func awaitAnswer(_ request: String, via connect: () -> NSXPCConnection = { NSXPC
     let done = DispatchSemaphore(value: 0)
     var result: String?
     let proxy = conn.remoteObjectProxyWithErrorHandler { _ in done.signal() } as? AnswerService
-    proxy?.ask(request) { word in result = word; done.signal() }
+    proxy?.ask(request, session: session, text: text, approvable: approvable) { word in result = word; done.signal() }
     _ = done.wait(timeout: .now() + timeout)
-    return result == "allow" || result == "deny" ? result : nil
+    return result == "deny" || (result == "allow" && approvable) ? result : nil
 }
 
-/// The room's side: holds each open request's reply until its button is clicked.
+/// An open permission request, as the waiting hook sent it.
+struct Question { let request: String, session: String, text: String, approvable: Bool, since: Date; let reply: (String) -> Void }
+
+/// The room's side: holds each open request until one of its buttons is clicked.
 final class Answers: NSObject, NSXPCListenerDelegate, AnswerService {
-    private var waiting: [String: (reply: (String) -> Void, since: Date)] = [:]
+    private var waiting: [String: Question] = [:]
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection c: NSXPCConnection) -> Bool {
         guard let requirement = selfRequirement else { return false }
@@ -78,14 +80,17 @@ final class Answers: NSObject, NSXPCListenerDelegate, AnswerService {
         return true
     }
 
-    func ask(_ request: String, withReply reply: @escaping (String) -> Void) {
+    func ask(_ request: String, session: String, text: String, approvable: Bool, withReply reply: @escaping (String) -> Void) {
         DispatchQueue.main.async {
             self.waiting = self.waiting.filter { Date().timeIntervalSince($0.value.since) < approveWait + 5 }
-            self.waiting[request] = (reply, Date())
+            self.waiting[request] = Question(request: request, session: session, text: text, approvable: approvable, since: Date(), reply: reply)
         }
     }
 
     func isWaiting(_ request: String) -> Bool { waiting[request] != nil }
+
+    /// The newest open request from a session, if its hook asked us.
+    func question(for session: String) -> Question? { waiting.values.filter { $0.session == session }.max { $0.since < $1.since } }
 
     /// Allow / Deny / Terminal for one request; a request whose hook gave up is gone and the click does nothing.
     func answer(_ request: String, _ word: String) { waiting.removeValue(forKey: request)?.reply(word) }

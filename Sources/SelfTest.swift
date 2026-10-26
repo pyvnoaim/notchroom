@@ -37,6 +37,8 @@ func test() {
     if askText("WebFetch", ["url": "https://x"]).approvable || !askText("Edit", ["file_path": "/a/b"]).approvable { fail("askText tools") }
 
     if visible("ls\u{202E}txt.exe\nrm") != "ls\\u{202E}txt.exe⏎ rm" { fail("visible -> \(visible("ls\u{202E}txt.exe\nrm"))") }
+    if visible("e\u{0301}ü") != "e\\u{0301}\\u{00FC}" { fail("visible combining -> \(visible("e\u{0301}ü"))") }
+    if askText("Bash", ["command": "a" + String(repeating: "\u{0301}", count: 300)]).approvable { fail("askText stacked marks") }
     if askText("Bash", ["command": "x" + String(repeating: "\u{200B}", count: 30)]).approvable { fail("askText hidden characters") }
 
     // the answer channel, over a real in-process XPC connection: a wrong request id is ignored, the right one gets
@@ -49,10 +51,12 @@ func test() {
     var answered: String?
     let done = DispatchSemaphore(value: 0)
     DispatchQueue.global().async {
-        answered = awaitAnswer(req, via: { NSXPCConnection(listenerEndpoint: listener.endpoint) }, timeout: 5); done.signal()
+        answered = awaitAnswer(req, session: "s1", text: "Bash: ls", approvable: true,
+                               via: { NSXPCConnection(listenerEndpoint: listener.endpoint) }, timeout: 5); done.signal()
     }
     func spin(until ok: () -> Bool) { let end = Date().addingTimeInterval(5); while !ok() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) } }
     spin { answers.isWaiting(req) }
+    if answers.question(for: "s1")?.text != "Bash: ls" { fail("question(for:) doesn't carry the hook's own text") }
     answers.answer("not-" + req, "deny")
     answers.answer(req, "allow")
     spin { done.wait(timeout: .now()) == .success }
@@ -63,7 +67,7 @@ func test() {
     strict.resume()
     var refused: String? = "unset"
     let done2 = DispatchSemaphore(value: 0)
-    DispatchQueue.global().async { refused = awaitAnswer("r", via: { NSXPCConnection(listenerEndpoint: strict.endpoint) }, timeout: 3); done2.signal() }
+    DispatchQueue.global().async { refused = awaitAnswer("r", session: "s2", text: "x", approvable: true, via: { NSXPCConnection(listenerEndpoint: strict.endpoint) }, timeout: 3); done2.signal() }
     spin { done2.wait(timeout: .now()) == .success }
     if refused != nil || stranger.asked { fail("answer channel talked to a peer with another signature") }
     print("ok")
@@ -79,5 +83,5 @@ final class Stranger: NSObject, NSXPCListenerDelegate, AnswerService {
         c.resume()
         return true
     }
-    func ask(_ request: String, withReply reply: @escaping (String) -> Void) { asked = true; reply("allow") }
+    func ask(_ request: String, session: String, text: String, approvable: Bool, withReply reply: @escaping (String) -> Void) { asked = true; reply("allow") }
 }

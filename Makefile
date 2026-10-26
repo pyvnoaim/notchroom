@@ -5,6 +5,8 @@ GUI    := gui/$(shell id -u)
 
 notchroom: $(wildcard Sources/*.swift)
 	swiftc -O Sources/*.swift -o $@
+	# hardened runtime: no injected libraries, and its code hash is what the permission channel trusts
+	codesign -s - -o runtime --force $@ 2>/dev/null
 
 test: notchroom
 	./notchroom --test

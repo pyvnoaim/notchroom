@@ -69,7 +69,7 @@ The room also opens by itself for a few seconds when a session starts waiting fo
 
 When a session needs permission, its card shows the full command and three buttons. **Allow** and **Deny** answer for you; **Terminal** hands the question back to the terminal's own prompt. If nothing is clicked within 20 seconds, the terminal gets it anyway. notchroom only holds a request while it is running, so with notchroom closed, permission prompts behave exactly as before.
 
-**Allow** is only offered when the card shows the whole request: a shell command of up to 200 characters (with any invisible or direction-changing characters spelled out, like `\u{202E}`), or a file tool with its full path. Anything longer, and any other tool, can be denied from the notch but has to be allowed in the terminal. Answering from the notch needs notchroom to run from its LaunchAgent (`make install`); started any other way, permission prompts simply stay in the terminal.
+**Allow** is only offered when the card shows the whole request: a shell command of up to 200 characters (anything outside printable ASCII spelled out, like `\u{202E}`), or a file tool with its full path. Anything longer, and any other tool, can be denied from the notch but has to be allowed in the terminal. Answering from the notch needs notchroom to run from its LaunchAgent (`make install`); started any other way, permission prompts simply stay in the terminal.
 
 ## Configuration
 
@@ -109,7 +109,9 @@ A session that crashes without saying goodbye disappears once its process is gon
 Answering a permission request from the notch must not become a way around it. The answer travels over XPC, not through a file or a socket anything could write to:
 
 - the waiting hook asks a Mach service that launchd only hands to the notchroom it started from the LaunchAgent, so nothing else can stand in for the room
-- both ends require the other to be this exact build, by code signature (`setCodeSigningRequirement` with notchroom's own code hash). macOS checks that against the running process itself, so a script, or a background command an agent started earlier, can't answer, not even by `exec`-ing into notchroom halfway
+- both ends require the other to be this exact build, by code signature (`setCodeSigningRequirement` with notchroom's own code hash). macOS checks that against the running process itself, so a script, or a background command an agent started earlier, can't answer, not even by `exec`-ing into notchroom halfway. The build has the hardened runtime, so nothing can be loaded into it to borrow that signature
+- the question on the card comes with the request itself, not from the session files in `~/.claude/notchroom`, so nothing that can write those files can change what you think you are allowing
+- the command is shown in printable ASCII, with everything else spelled out as `\u{…}`, so invisible, combining or direction-changing characters can't hide what runs
 - each answer is the reply to one request, so a late click can't approve a newer request than the one it was shown, and a card only ever has buttons for one question
 
 What this can't stop is something that already controls your Mac as you, for example one sending synthetic clicks with Accessibility access, or loading its own LaunchAgent before notchroom's. The `--test` self-check runs the real XPC path on every run, including a peer with the wrong signature.

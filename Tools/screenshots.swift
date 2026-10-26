@@ -9,7 +9,7 @@ let notchHeight: CGFloat = 28
 
 func person(_ id: String, _ state: String, _ project: String, doing: String? = nil, ask: String? = nil) -> Agent {
     Agent(id: id, state: state, project: project, seed: id.utf8.reduce(7) { abs($0 &* 31 &+ Int($1)) }, pid: 1,
-          doing: doing, seen: Date().timeIntervalSince1970, ask: ask, askId: ask == nil ? nil : "demo", askAllow: ask != nil)
+          doing: doing, seen: Date().timeIntervalSince1970, ask: ask)
 }
 
 let demoIdeas: [String: [String]] = [
@@ -116,8 +116,10 @@ do {
     print("wrote docs/room.gif")
 }
 
-// a permission request, answered from the notch
+// a permission request, answered from the notch: the question arrives the way a waiting hook sends it
 do {
+    answers.ask("demo", session: "a3", text: "Bash: npm run deploy -- --prod", approvable: true) { _ in }
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
     let v = demoRoom()
     v.mouse = NSPoint(x: 14 + 116 * 3, y: 10 + 10 * 3)
     png(framed(v, canvas: canvas), "permission.png")
