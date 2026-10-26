@@ -36,22 +36,48 @@ func test() {
     if askText("Bash", ["command": String(repeating: "x", count: askLimit + 1)]).approvable { fail("askText long command approvable") }
     if askText("WebFetch", ["url": "https://x"]).approvable || !askText("Edit", ["file_path": "/a/b"]).approvable { fail("askText tools") }
 
-    // the answer channel: a stranger (nc) with the right id and this binary with a wrong id are both ignored;
-    // only this binary with the right id gets through
-    let sock = NSTemporaryDirectory() + "nr-\(getpid()).sock", req = UUID().uuidString
+    if visible("ls\u{202E}txt.exe\nrm") != "ls\\u{202E}txt.exe⏎ rm" { fail("visible -> \(visible("ls\u{202E}txt.exe\nrm"))") }
+    if askText("Bash", ["command": "x" + String(repeating: "\u{200B}", count: 30)]).approvable { fail("askText hidden characters") }
+
+    // the answer channel, over a real in-process XPC connection: a wrong request id is ignored, the right one gets
+    // through, and a listener that wants another binary's signature is refused
+    guard selfRequirement != nil else { fail("selfRequirement: this binary has no code signature") }
+    let listener = NSXPCListener.anonymous()
+    listener.delegate = answers
+    listener.resume()
+    let req = UUID().uuidString
     var answered: String?
     let done = DispatchSemaphore(value: 0)
-    DispatchQueue.global().async { answered = listenForAnswer(sock, req, timeout: 5); done.signal() }
-    usleep(300_000)
-    let nc = Process()
-    nc.executableURL = URL(fileURLWithPath: "/bin/sh")
-    nc.arguments = ["-c", "printf '%s deny' \"$1\" | nc -U \"$2\"", "sh", req, sock]
-    try? nc.run(); nc.waitUntilExit()
-    usleep(200_000)
-    answer(sock, "not-" + req, "deny")
-    usleep(200_000)
-    answer(sock, req, "allow")
-    done.wait()
+    DispatchQueue.global().async {
+        answered = awaitAnswer(req, via: { NSXPCConnection(listenerEndpoint: listener.endpoint) }, timeout: 5); done.signal()
+    }
+    func spin(until ok: () -> Bool) { let end = Date().addingTimeInterval(5); while !ok() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) } }
+    spin { answers.isWaiting(req) }
+    answers.answer("not-" + req, "deny")
+    answers.answer(req, "allow")
+    spin { done.wait(timeout: .now()) == .success }
     if answered != "allow" { fail("answer channel -> \(answered ?? "nil"), want allow") }
+
+    let strict = NSXPCListener.anonymous(), stranger = Stranger()
+    strict.delegate = stranger
+    strict.resume()
+    var refused: String? = "unset"
+    let done2 = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async { refused = awaitAnswer("r", via: { NSXPCConnection(listenerEndpoint: strict.endpoint) }, timeout: 3); done2.signal() }
+    spin { done2.wait(timeout: .now()) == .success }
+    if refused != nil || stranger.asked { fail("answer channel talked to a peer with another signature") }
     print("ok")
+}
+
+/// A listener that wants a signature this binary doesn't have: the hook must get nothing through to it.
+final class Stranger: NSObject, NSXPCListenerDelegate, AnswerService {
+    var asked = false
+    func listener(_ listener: NSXPCListener, shouldAcceptNewConnection c: NSXPCConnection) -> Bool {
+        c.setCodeSigningRequirement("cdhash H\"" + String(repeating: "0", count: 40) + "\"")
+        c.exportedInterface = NSXPCInterface(with: AnswerService.self)
+        c.exportedObject = self
+        c.resume()
+        return true
+    }
+    func ask(_ request: String, withReply reply: @escaping (String) -> Void) { asked = true; reply("allow") }
 }

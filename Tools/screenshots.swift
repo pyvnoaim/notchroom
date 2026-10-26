@@ -9,7 +9,7 @@ let notchHeight: CGFloat = 28
 
 func person(_ id: String, _ state: String, _ project: String, doing: String? = nil, ask: String? = nil) -> Agent {
     Agent(id: id, state: state, project: project, seed: id.utf8.reduce(7) { abs($0 &* 31 &+ Int($1)) }, pid: 1,
-          doing: doing, ask: ask, seen: Date().timeIntervalSince1970)
+          doing: doing, seen: Date().timeIntervalSince1970, ask: ask, askId: ask == nil ? nil : "demo", askAllow: ask != nil)
 }
 
 let demoIdeas: [String: [String]] = [
@@ -18,7 +18,7 @@ let demoIdeas: [String: [String]] = [
     "blog": ["An RSS feed per tag", "Reading time under each title", "Dark mode that follows the system"],
     "cli": ["--json output for every command", "Shell completions for zsh and fish", "A --dry-run flag for deploy"],
     "site": ["Lazy-load the screenshots", "A changelog page from git tags", "Copy button on code blocks"],
-    "notchroom": ["A sound when an agent needs you", "Weekly totals on Friday's whiteboard", "Hats for long-running sessions"],
+    "notchroom": ["A sound when an agent needs you", "A wall calendar of the week", "Hats for long-running sessions"],
 ]
 
 func demoRoom() -> Room {
@@ -41,8 +41,6 @@ func demoRoom() -> Room {
     var today = Stats()
     today.active = 4 * 3600 + 23 * 60; today.tools = 512; today.sessions = 7
     today.perProject = ["api": 190, "app": 140, "notchroom": 120, "site": 62]
-    let hour = Calendar.current.component(.hour, from: Date())
-    for (i, n) in [4, 9, 22, 30, 18, 26, 41, 35, 20, 12, 28, 16].enumerated() { today.hourly[(hour - 11 + i + 24) % 24] = n }
     v.today = today
     v.cat = Cat(x: 60, y: 33, tx: 60, ty: 33, mode: "sit", until: .distantFuture, place: "the floor")
     v.expanded = true

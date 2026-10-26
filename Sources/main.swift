@@ -8,9 +8,9 @@
 //   Pixels.swift    colors, cached bitmaps and text, sprites
 //   Hook.swift      `--hook`: turns Claude Code hook events into state files
 //   Sessions.swift  sessions, projects, desks, focusing a terminal
-//   Answer.swift    the checked channel for Allow / Deny from the notch
+//   Answer.swift    Allow / Deny from the notch to a waiting hook, over signature-checked XPC
 //   Ideas.swift     per-project ideas from `claude -p`, filing them in stash
-//   Today.swift     the whiteboard's numbers
+//   Today.swift     today's numbers (the clock's card)
 //   Sky.swift       sun position and weather
 //   Music.swift     what resona is playing
 //   Install.swift   adding and removing the hooks in ~/.claude/settings.json

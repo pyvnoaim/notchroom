@@ -3,7 +3,7 @@ import AppKit
 
 struct Agent {
     let id: String, state: String, project: String, seed: Int, pid: Int32?, doing: String?, seen: Double
-    var ask: String? = nil, askId: String? = nil, askSocket: String? = nil, askAllow = false // a permission request, if one is open
+    var ask: String? = nil, askId: String? = nil, askAllow = false // a permission request, if one is open
 }
 
 /// The project a session belongs to: the folder right under ~/dev, else the cwd's own name.
@@ -24,7 +24,7 @@ func loadAgents() -> [Agent] {
         return Agent(id: id, state: j["state"] as? String ?? "idle", project: project(of: j["cwd"] as? String ?? ""),
                      seed: id.utf8.reduce(7) { abs($0 &* 31 &+ Int($1)) }, pid: (j["pid"] as? Int).map(Int32.init),
                      doing: j["doing"] as? String, seen: j["seen"] as? Double ?? 0, ask: j["ask"] as? String,
-                     askId: j["askId"] as? String, askSocket: j["askSocket"] as? String, askAllow: j["askAllow"] as? Bool ?? false)
+                     askId: j["askId"] as? String, askAllow: j["askAllow"] as? Bool ?? false)
     }
 }
 

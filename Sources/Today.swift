@@ -1,7 +1,7 @@
-// Today's numbers for the whiteboard, from the hook's event log.
+// Today's numbers for the clock's card and the collapsed notch, from the hook's event log.
 import Foundation
 
-struct Stats { var tools = 0, sessions = 0, active: TimeInterval = 0, perProject: [String: Int] = [:], hourly = [Int](repeating: 0, count: 24) }
+struct Stats { var tools = 0, sessions = 0, active: TimeInterval = 0, perProject: [String: Int] = [:] }
 
 /// Today's log -> tool calls, sessions, and active time: gaps under five minutes between one session's events.
 func stats(_ text: String) -> Stats {
@@ -10,10 +10,7 @@ func stats(_ text: String) -> Stats {
         let f = line.split(separator: "\t", omittingEmptySubsequences: false)
         guard f.count >= 5, let t = Double(f[0]) else { continue }
         let id = String(f[1])
-        if f[3] == "PreToolUse" {
-            s.tools += 1; s.perProject[String(f[2]), default: 0] += 1
-            s.hourly[Calendar.current.component(.hour, from: Date(timeIntervalSince1970: t))] += 1
-        }
+        if f[3] == "PreToolUse" { s.tools += 1; s.perProject[String(f[2]), default: 0] += 1 }
         if let prev = last[id], t - prev < 300 { s.active += t - prev }
         last[id] = t
     }

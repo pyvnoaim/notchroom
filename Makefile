@@ -20,6 +20,7 @@ install: notchroom
 	  '<key>Label</key><string>$(LABEL)</string>' \
 	  '<key>ProgramArguments</key><array><string>$(PREFIX)/notchroom</string></array>' \
 	  '<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>' \
+	  '<key>MachServices</key><dict><key>xyz.pyvno.notchroom.answers</key><true/></dict>' \
 	  '</dict></plist>' > $(PLIST)
 	-launchctl bootout $(GUI)/$(LABEL) 2>/dev/null
 	-pkill -x notchroom

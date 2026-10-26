@@ -5,8 +5,6 @@ let home = FileManager.default.homeDirectoryForCurrentUser
 let dir = home.appendingPathComponent(".claude/notchroom")
 let ideasDir = dir.appendingPathComponent("ideas")
 let logDir = dir.appendingPathComponent("log")
-let answerDir = dir.appendingPathComponent("answers")
-let aliveFile = dir.appendingPathComponent("alive")
 let partyFile = dir.appendingPathComponent("party")
 
 /// Settings from ~/.claude/notchroom/config, one `key = value` per line, `#` for comments:

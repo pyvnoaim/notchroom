@@ -9,7 +9,7 @@ struct Cat { var x = 120.0, y = 20.0, tx = 120.0, ty = 20.0, mode = "sit", until
 struct Particle { var x: Double, y: Double, vx: Double, vy: Double, color: UInt32 }
 
 /// What a hover card is about.
-enum Target: Equatable { case desk(String), agent(String), board, player, cat }
+enum Target: Equatable { case desk(String), agent(String), clock, player, cat, pin }
 
 /// A hover card: a title with a status chip, an optional picture, lines (some clickable) and buttons.
 struct Card {
@@ -35,6 +35,7 @@ final class Room: NSView {
     var walkers: [String: Walker] = [:]
     var cat = Cat()
     var expanded = false
+    var keptOpen = false // clicked open: stays open without hovering
     var autoCard: Target? // shown without hovering, while the room peeks open for a permission request
     var tick = 0
     var mouse: NSPoint?
@@ -239,10 +240,11 @@ final class Room: NSView {
             for x in stride(from: (row * 9) % 17, to: 216, by: 17) { px(x, row * 5 + 1, 1, 4, 0x5a3d2b) }
         }
 
-        // back wall, whiteboard frame, bookshelf, side walls and the door
+        // back wall, a framed landscape, bookshelf, side walls and the door
         px(0, 60, 216, 12, 0x3b2f5a); px(0, 70, 216, 2, 0x2a2142); px(0, 60, 216, 1, 0x1d1630)
-        px(111, 61, 42, 9, 0xb8b8c8); px(112, 62, 40, 7, 0xf7f7fb); px(114, 60, 36, 1, 0x9a9aaa)
-        px(118, 60, 3, 1, 0xe05d5d); px(122, 60, 3, 1, 0x5d9be0); px(126, 60, 3, 1, 0x3fa35f)
+        px(117, 61, 26, 9, 0x6a4430); px(118, 62, 24, 7, 0xf2c49b); px(136, 66, 2, 2, 0xfff1c1)
+        px(119, 63, 9, 2, 0x6b5b8a); px(121, 65, 5, 1, 0x6b5b8a); px(123, 66, 2, 1, 0x6b5b8a)
+        px(127, 63, 11, 2, 0x57497a); px(129, 65, 6, 1, 0x57497a); px(131, 66, 2, 1, 0x57497a); px(118, 62, 24, 1, 0x3f6f5a)
         px(184, 61, 22, 8, 0x5a3d2b)
         for (i, c) in [0xd05050, 0x5070d0, 0xd0b050, 0x50a070, 0xc46be0, 0xe0905d, 0x5de0c8, 0xd05050].enumerated() {
             px(185 + i * 2 + i / 4, 62, 2, 5 + i % 2, UInt32(c))
@@ -280,7 +282,7 @@ final class Room: NSView {
 
         backdrop().draw(in: roomRect)
 
-        // back wall: windows onto the real sky, a clock with the real time, the whiteboard, a bookshelf
+        // back wall: windows onto the real sky, a clock with the real time
         let dayBlue: UInt32 = weather.rain || weather.snow ? 0x8a96a3 : weather.cloudy ? 0xb2c0cc : 0x8fc8f0
         let sky = light < 0.5 ? mix(0x16244a, 0xf0a070, light * 2) : mix(0xf0a070, dayBlue, (light - 0.5) * 2)
         let sunny = light > 0.6 && !weather.cloudy && !weather.rain && !weather.snow
@@ -302,12 +304,7 @@ final class Room: NSView {
         px(106 + Int((sin(hour * 30 * r) * 1.6).rounded()), 65 + Int((cos(hour * 30 * r) * 1.6).rounded()), 1, 1, 0x1d1630)
         let minute = Double(cal.component(.minute, from: now))
         px(106 + Int((sin(minute * 6 * r) * 2.6).rounded()), 65 + Int((cos(minute * 6 * r) * 2.6).rounded()), 1, 1, 0xe05d5d)
-        // the last 12 hours of tool calls as marker bars, this hour in red
-        let hourNow = Calendar.current.component(.hour, from: Date())
-        let last12 = (0..<12).map { today.hourly[(hourNow - 11 + $0 + 24) % 24] }, top = max(last12.max() ?? 0, 1)
-        px(128, 63, 23, 1, 0x5d9be0)
-        for (i, n) in last12.enumerated() where n > 0 { px(128 + i * 2, 64, 1, max(1, n * 5 / top), i == 11 ? 0xe05d5d : 0x3fa35f) }
-        targets.append((box(111, 60, 42, 10), .board))
+        targets.append((box(102, 61, 9, 9), .clock)) // its card has today's numbers
 
         // the record player: spinning disc, tone arm, sleeve, notes
         if music { let spin = [(131, 29), (137, 29), (137, 33), (131, 33)][tick / 2 % 4]; px(spin.0, spin.1, 1, 1, 0x666666) }
@@ -409,9 +406,13 @@ final class Room: NSView {
         }
         NSGraphicsContext.restoreGraphicsState()
 
-        // the whiteboard's words, after the dark so they stay readable
-        let board = text(hm(today.active), 10, 0x2f5fb0)
-        board.put(at: NSPoint(x: pt(113, 0).x + (pt(127, 0).x - pt(113, 0).x - board.size.width) / 2, y: pt(0, 62).y + (7 * scale - board.size.height) / 2))
+        // the strip behind the notch: click it to keep the room open while you work
+        let band = NSRect(x: 0, y: pt(0, Room.rows).y, width: bounds.width, height: bounds.height - pt(0, Room.rows).y)
+        let overBand = mouse.map { band.contains($0) } == true
+        let label = text(keptOpen ? "pinned · click here to close" : "click here to keep it open", 9,
+                         keptOpen ? 0xffe066 : overBand ? 0xe8e3f5 : 0x6a6080)
+        label.put(at: NSPoint(x: ox + 10, y: band.midY - label.size.height / 2))
+        targets.insert((band, .pin), at: 0)
 
         // party banner, else a hover card, else an idea bubble
         if let p = partyNow, let a = anchors[p.project] {
@@ -443,6 +444,7 @@ final class Room: NSView {
         let m = convert(e.locationInWindow, from: nil)
         if let c = clicks.last(where: { $0.rect.contains(m) }) { c.action(); needsDisplay = true; return }
         switch hit(m) {
+        case .pin: keptOpen.toggle(); needsDisplay = true
         case .agent(let id): if let pid = agents.first(where: { $0.id == id })?.pid { focusTerminal(pid) }
         case .desk(let p): if let pid = agents.first(where: { $0.project == p })?.pid { focusTerminal(pid) }
         case .cat: cat.meow = Date().addingTimeInterval(2)

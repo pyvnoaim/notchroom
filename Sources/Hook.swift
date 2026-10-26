@@ -1,5 +1,5 @@
 // `notchroom --hook`: Claude Code runs this on every hook event. It records each session's state in
-// ~/.claude/notchroom/<session>.json, logs the event for the whiteboard, flags parties, and holds a
+// ~/.claude/notchroom/<session>.json, logs the event for today's numbers, flags parties, and holds a
 // permission request open while the notch can answer it (see Answer.swift).
 import Foundation
 
@@ -70,7 +70,7 @@ func dayFile(_ d: Date) -> URL {
     return logDir.appendingPathComponent(f.string(from: d) + ".tsv")
 }
 
-/// One line per hook event for the whiteboard: time, session, project, event, tool. O_APPEND keeps parallel hooks whole.
+/// One line per hook event for today's numbers: time, session, project, event, tool. O_APPEND keeps parallel hooks whole.
 func log(_ fields: [String]) {
     try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
     let fd = open(dayFile(Date()).path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
@@ -102,30 +102,28 @@ func hook() {
     switch event {
     case "UserPromptSubmit", "PreToolUse":
         out["doing"] = event == "PreToolUse" ? doing(tool, input) : "Thinking"
-        for k in ["ask", "askId", "askSocket", "askAllow"] { out[k] = nil }
+        for k in ["ask", "askId", "askAllow"] { out[k] = nil }
     case "PostToolUse", "PostToolUseFailure":
-        for k in ["ask", "askId", "askSocket", "askAllow"] { out[k] = nil }
+        for k in ["ask", "askId", "askAllow"] { out[k] = nil }
         if event == "PostToolUse", tool == "Bash", let kind = partyKind(input["command"] as? String ?? "") {
             try? "\(Date().timeIntervalSince1970)\t\(project(of: cwd))\t\(kind)".write(to: partyFile, atomically: true, encoding: .utf8)
         }
-    case "Stop", "SessionStart": for k in ["doing", "ask", "askId", "askSocket", "askAllow"] { out[k] = nil }
+    case "Stop", "SessionStart": for k in ["doing", "ask", "askId", "askAllow"] { out[k] = nil }
     case "PermissionRequest":
         let (text, approvable) = askText(tool, input)
-        try? fm.createDirectory(at: answerDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         out["ask"] = text; out["askAllow"] = approvable
         out["askId"] = UUID().uuidString
-        out["askSocket"] = answerDir.appendingPathComponent(String(id.prefix(12)) + ".sock").path
     default: break
     }
     try? JSONSerialization.data(withJSONObject: out).write(to: file, options: .atomic)
 
-    if event == "PermissionRequest", let sock = out["askSocket"] as? String, let request = out["askId"] as? String,
-       let answer = awaitAnswer(sock, request), answer == "deny" || out["askAllow"] as? Bool == true {
+    if event == "PermissionRequest", let request = out["askId"] as? String,
+       let answer = awaitAnswer(request), answer == "deny" || out["askAllow"] as? Bool == true {
         let decision: [String: Any] = answer == "allow" ? ["behavior": "allow"] : ["behavior": "deny", "message": "Denied from the notch."]
         let reply: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": decision]]
         if let d = try? JSONSerialization.data(withJSONObject: reply) { FileHandle.standardOutput.write(d) }
         out["state"] = "working"
-        for k in ["ask", "askId", "askSocket", "askAllow"] { out[k] = nil }
+        for k in ["ask", "askId", "askAllow"] { out[k] = nil }
         try? JSONSerialization.data(withJSONObject: out).write(to: file, options: .atomic)
     }
 }

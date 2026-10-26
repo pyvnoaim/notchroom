@@ -20,6 +20,8 @@ func runApp() {
     panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
     let room = Room()
+    let answering = listenForAnswers() // permission answers for waiting hooks (see Answer.swift)
+    _ = answering
     panel.contentView = room
     panel.orderFrontRegardless()
 
@@ -38,7 +40,7 @@ func runApp() {
         // grown by a point so a cursor pinned to the top screen edge still counts as inside (contains() excludes maxY)
         let hovering = (room.expanded ? big : small).insetBy(dx: -1, dy: -1).contains(m)
         let was = room.expanded
-        room.expanded = hovering || Date() < peekUntil
+        room.expanded = hovering || room.keptOpen || Date() < peekUntil
         if hovering || !room.expanded { room.autoCard = nil }
         panel.ignoresMouseEvents = !room.expanded // closed, clicks fall through to the menu bar
         let target = room.expanded ? big : small
@@ -87,7 +89,6 @@ func runApp() {
         room.step()
         if room.tick % 10 == 1 {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: aliveFile.path, contents: nil) // heartbeat: hooks only wait on a running room
             notch = notchRect()
             room.agents = loadAgents()
             room.desks = deskProjects(room.agents, room.recentRank.sorted { $0.value < $1.value }.map(\.key))

@@ -1,85 +1,102 @@
-// Answering a permission request from the notch. The waiting hook listens on a Unix socket and takes an answer only
-// from a process running the notchroom binary itself, and only for the request it is holding (a random id). So no
-// other process running as you, a background command an agent started included, can approve anything, and a late
-// click can't answer a newer request than the one it was shown.
+// Answering a permission request from the notch, over XPC. The room offers a Mach service that only launchd can
+// hand out (declared in its LaunchAgent), and both ends insist the other is this very binary by code signature,
+// checked by macOS against the running process (exec-safe). So nothing else running as you, a background command
+// an agent started included, can answer, and each answer is the reply to its own request, never a newer one.
 import Foundation
-import Darwin
+import Security
 
-let askLimit = 300 // longer commands are shown cut short, and then only Deny / Terminal are offered
+let answerService = "xyz.pyvno.notchroom.answers" // must match MachServices in the LaunchAgent (Makefile)
+let askLimit = 200 // a command longer than this, once made visible, is answered in the terminal
 
-/// What a permission request asks, and whether it may be approved from the notch: only when the card can show all
-/// of it (a Bash command up to `askLimit`, a file tool with its full path). Anything else is answered in the terminal.
+@objc protocol AnswerService {
+    func ask(_ request: String, withReply reply: @escaping (String) -> Void)
+}
+
+/// A code requirement that only this exact build meets: its own code directory hash.
+let selfRequirement: String? = {
+    var code: SecCode?, stat: SecStaticCode?, info: CFDictionary?
+    guard SecCodeCopySelf([], &code) == errSecSuccess, let code, SecCodeCopyStaticCode(code, [], &stat) == errSecSuccess, let stat,
+          SecCodeCopySigningInformation(stat, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+          let hash = (info as? [String: Any])?[kSecCodeInfoUnique as String] as? Data else { return nil }
+    return "cdhash H\"" + hash.map { String(format: "%02x", $0) }.joined() + "\""
+}()
+
+/// The text as it will really run: control, format and bidi characters spelled out as \u{…}, newlines as ⏎,
+/// so the card can't show something other than the command.
+func visible(_ s: String) -> String {
+    s.unicodeScalars.map { u -> String in
+        if u == "\n" { return "⏎ " }
+        switch u.properties.generalCategory {
+        case .control, .format, .lineSeparator, .paragraphSeparator, .privateUse, .unassigned, .surrogate:
+            return String(format: "\\u{%04X}", u.value)
+        default: return String(u)
+        }
+    }.joined()
+}
+
+/// What a permission request asks, and whether it may be approved from the notch: only when the card shows all of
+/// it (a Bash command up to `askLimit` once made visible, a file tool with its full path). Anything else is answered
+/// in the terminal.
 func askText(_ tool: String, _ input: [String: Any]) -> (text: String, approvable: Bool) {
     if tool == "Bash", let c = input["command"] as? String {
-        return ("Bash: " + (c.count > askLimit ? c.prefix(askLimit) + "…" : c), c.count <= askLimit)
+        let v = visible(c)
+        return ("Bash: " + (v.count > askLimit ? v.prefix(askLimit) + "…" : v), v.count <= askLimit)
     }
     if ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit"].contains(tool),
-       let f = (input["file_path"] ?? input["notebook_path"]) as? String { return ("\(tool): \(f)", true) }
+       let f = (input["file_path"] ?? input["notebook_path"]) as? String { return ("\(tool): \(visible(f))", true) }
     return (doing(tool, input), false)
 }
 
-func unixAddress(_ path: String) -> sockaddr_un? {
-    var a = sockaddr_un()
-    let bytes = Array(path.utf8)
-    guard bytes.count < MemoryLayout.size(ofValue: a.sun_path) else { return nil }
-    a.sun_family = sa_family_t(AF_UNIX)
-    a.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
-    withUnsafeMutableBytes(of: &a.sun_path) { buf in for (i, b) in bytes.enumerated() { buf[i] = b } }
-    return a
+/// The hook's side: ask the room and wait for the click. nil (room not running, not reachable, no answer in time,
+/// or "terminal") leaves it to the terminal's prompt.
+func awaitAnswer(_ request: String, via connect: () -> NSXPCConnection = { NSXPCConnection(machServiceName: answerService) },
+                 timeout: TimeInterval = approveWait) -> String? {
+    guard let requirement = selfRequirement else { return nil }
+    let conn = connect()
+    conn.remoteObjectInterface = NSXPCInterface(with: AnswerService.self)
+    conn.setCodeSigningRequirement(requirement)
+    conn.resume()
+    defer { conn.invalidate() }
+    let done = DispatchSemaphore(value: 0)
+    var result: String?
+    let proxy = conn.remoteObjectProxyWithErrorHandler { _ in done.signal() } as? AnswerService
+    proxy?.ask(request) { word in result = word; done.signal() }
+    _ = done.wait(timeout: .now() + timeout)
+    return result == "allow" || result == "deny" ? result : nil
 }
 
-func withSockaddr<T>(_ a: inout sockaddr_un, _ body: (UnsafePointer<sockaddr>, socklen_t) -> T) -> T {
-    withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { body($0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
-}
+/// The room's side: holds each open request's reply until its button is clicked.
+final class Answers: NSObject, NSXPCListenerDelegate, AnswerService {
+    private var waiting: [String: (reply: (String) -> Void, since: Date)] = [:]
 
-/// Holds one request open on `sock` until the room answers it or `timeout` runs out. Connections from anything that
-/// isn't this very binary, and answers for any other request, are dropped. nil: leave it to the terminal.
-func listenForAnswer(_ sock: String, _ request: String, timeout: TimeInterval) -> String? {
-    guard var addr = unixAddress(sock) else { return nil }
-    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-    guard fd >= 0 else { return nil }
-    defer { close(fd); unlink(sock) }
-    unlink(sock)
-    guard withSockaddr(&addr, { bind(fd, $0, $1) }) == 0, chmod(sock, 0o600) == 0, listen(fd, 4) == 0 else { return nil }
-    let me = procInfo(getpid())?.path
-    let deadline = Date().addingTimeInterval(timeout)
-    while true {
-        let left = Int32(deadline.timeIntervalSinceNow * 1000)
-        var p = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-        guard left > 0, poll(&p, 1, left) > 0 else { return nil }
-        let c = accept(fd, nil, nil)
-        guard c >= 0 else { continue }
-        defer { close(c) }
-        var pid: pid_t = 0, len = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(c, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) == 0, me != nil, procInfo(pid)?.path == me else { continue }
-        var wait = timeval(tv_sec: 1, tv_usec: 0)
-        setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
-        var buf = [UInt8](repeating: 0, count: 128)
-        let n = read(c, &buf, buf.count)
-        let words = n > 0 ? String(decoding: buf[..<n], as: UTF8.self).split(separator: " ").map(String.init) : []
-        guard words.count == 2, words[0] == request, ["allow", "deny", "terminal"].contains(words[1]) else { continue }
-        return words[1] == "terminal" ? nil : words[1]
+    func listener(_ listener: NSXPCListener, shouldAcceptNewConnection c: NSXPCConnection) -> Bool {
+        guard let requirement = selfRequirement else { return false }
+        c.setCodeSigningRequirement(requirement)
+        c.exportedInterface = NSXPCInterface(with: AnswerService.self)
+        c.exportedObject = self
+        c.resume()
+        return true
     }
-}
 
-/// The hook's side: wait for the room only while it is running, so with notchroom closed prompts are as before.
-func awaitAnswer(_ sock: String, _ request: String) -> String? {
-    guard let alive = mtime(aliveFile.path), Date().timeIntervalSince(alive) < 3 else { return nil }
-    return listenForAnswer(sock, request, timeout: approveWait)
-}
-
-/// The room's side: Allow / Deny / Terminal, sent to the hook holding that request.
-func answer(_ sock: String, _ request: String, _ word: String) {
-    DispatchQueue.global(qos: .userInitiated).async {
-        guard var addr = unixAddress(sock) else { return }
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return }
-        defer { close(fd) }
-        guard withSockaddr(&addr, { connect(fd, $0, $1) }) == 0 else { return }
-        _ = "\(request) \(word)".withCString { write(fd, $0, strlen($0)) }
-        // stay connected until the hook hangs up: it can only check who is asking while we're still here
-        var wait = timeval(tv_sec: 2, tv_usec: 0), byte: UInt8 = 0
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
-        _ = read(fd, &byte, 1)
+    func ask(_ request: String, withReply reply: @escaping (String) -> Void) {
+        DispatchQueue.main.async {
+            self.waiting = self.waiting.filter { Date().timeIntervalSince($0.value.since) < approveWait + 5 }
+            self.waiting[request] = (reply, Date())
+        }
     }
+
+    func isWaiting(_ request: String) -> Bool { waiting[request] != nil }
+
+    /// Allow / Deny / Terminal for one request; a request whose hook gave up is gone and the click does nothing.
+    func answer(_ request: String, _ word: String) { waiting.removeValue(forKey: request)?.reply(word) }
+}
+
+let answers = Answers()
+
+/// Offers the service; only works when launchd started the room from its LaunchAgent (make install).
+func listenForAnswers() -> NSXPCListener {
+    let l = NSXPCListener(machServiceName: answerService)
+    l.delegate = answers
+    l.resume()
+    return l
 }

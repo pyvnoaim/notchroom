@@ -4,11 +4,12 @@ import AppKit
 extension Room {
     func card(for t: Target) -> Card? {
         switch t {
-        case .agent(let id): return agents.first { $0.id == id }.map { projectCard($0.project) }
+        case .pin: return nil
+        case .agent(let id): return agents.first { $0.id == id }.map { projectCard($0.project, focus: id) }
         case .desk(let p): return projectCard(p)
         case .cat: return Card(title: "Byte", chip: (cat.mode == "sleep" ? "napping" : "on patrol", 0xe0905d),
                                lines: [("on \(cat.place)", 0xe8e3f5, nil, nil), ("click to say hi", 0x8a80a8, nil, nil)])
-        case .board:
+        case .clock:
             var c = Card(title: "Today", chip: ("\(today.sessions) sessions", 0x9fb4ff))
             c.lines = [("\(hm(today.active)) active", 0xe8e3f5, 0x5fd38d, nil), ("\(today.tools) tool calls", 0xe8e3f5, 0x5fd38d, nil)]
             for (p, n) in today.perProject.sorted(by: { $0.value > $1.value }).prefix(5) { c.lines.append(("\(p)  \(n)", 0xc9b8a6, 0xffe066, nil)) }
@@ -20,8 +21,9 @@ extension Room {
         }
     }
 
-    /// A project's card: who is on it and doing what, any permission question with its buttons, and the ideas.
-    func projectCard(_ proj: String) -> Card {
+    /// A project's card: who is on it and doing what, a permission question with its buttons, and the ideas.
+    /// At most one question gets buttons (the hovered session's, else the first), built from that request alone.
+    func projectCard(_ proj: String, focus: String? = nil) -> Card {
         let here = agents.filter { $0.project == proj }
         let chip: (String, UInt32) =
             here.contains { $0.state == "waiting" } ? ("needs you", 0xffb347)
@@ -29,16 +31,20 @@ extension Room {
             : here.isEmpty ? ("no agent", 0x8a80a8) : ("idle", 0x9fb4ff)
         var c = Card(title: proj, chip: chip)
         if let g = growth[proj], g.commits > 0 { c.lines.append(("\(g.commits) commits" + (g.released ? " · v1 shipped" : ""), 0x8a80a8, nil, nil)) }
+        let asking = here.filter { $0.state == "waiting" && $0.ask != nil }
+        let asker = asking.first { $0.id == focus } ?? asking.first
         for a in here {
-            if let q = a.ask, a.state == "waiting" {
+            if a.ask != nil, a.state == "waiting", a.id != asker?.id {
+                c.lines.append(("another session here is asking too: hover it", 0xffb347, 0xffb347, nil))
+            } else if let q = a.ask, a.state == "waiting" {
                 let left = max(0, Int(a.seen + approveWait - Date().timeIntervalSince1970))
                 c.lines.append((q, 0xffb347, 0xffb347, nil))
-                if left > 0, let sock = a.askSocket, let req = a.askId {
+                if left > 0, let req = a.askId {
                     c.lines.append((a.askAllow ? "answer here within \(left)s, or in the terminal"
                                                : "too much to show here: allow it in the terminal", 0x8a80a8, nil, nil))
-                    c.buttons = (a.askAllow ? [("Allow", 0x5fd38d, { answer(sock, req, "allow") })] : [])
-                        + [("Deny", 0xe05d5d, { answer(sock, req, "deny") }),
-                           ("Terminal", 0x8a80a8, { answer(sock, req, "terminal"); if let pid = a.pid { focusTerminal(pid) } })]
+                    c.buttons = (a.askAllow ? [("Allow", 0x5fd38d, { answers.answer(req, "allow") })] : [])
+                        + [("Deny", 0xe05d5d, { answers.answer(req, "deny") }),
+                           ("Terminal", 0x8a80a8, { answers.answer(req, "terminal"); if let pid = a.pid { focusTerminal(pid) } })]
                 } else if let pid = a.pid {
                     c.buttons = [("Open terminal", 0x8a80a8, { focusTerminal(pid) })]
                 }

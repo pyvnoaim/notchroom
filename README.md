@@ -17,7 +17,7 @@ Running several Claude Code sessions at once means tabbing around to find out wh
 - **What everyone is doing.** Hover a desk: "Running make test", "Editing Room.swift", plus the project's commit count.
 - **Ideas on every desk.** Once a day per project, Claude Haiku reads the README and recent commits and pitches a few small features, which show up as speech bubbles. Click one to file it in [stash](https://github.com/pyvnoaim/stash).
 - **The real sky.** Sunrise, dusk and night follow the sun where your time zone says you are, and the windows show rain or snow when it's actually raining or snowing there. At night the lamp comes on.
-- **Today on the whiteboard.** Active time and a bar chart of the last twelve hours; hover it for the numbers per project.
+- **Today's numbers.** Hover the wall clock for today's active time, tool calls and sessions, per project.
 - **A party for green tests.** A passing test run or a `git push` throws confetti and the project's character dances.
 - **Small things.** A record player that shows what [resona](https://github.com/pyvnoaim/resona) is playing (everyone bobs along), desks that collect plants, screens, books and a trophy as their projects grow, and a cat named Byte who sits on the keyboard of whatever you've been ignoring longest.
 - **No dependencies.** Plain Swift and AppKit, built with the Xcode Command Line Tools.
@@ -46,19 +46,20 @@ make install
 
 - copies the binary to `~/.local/bin/notchroom` (set `PREFIX=` to put it elsewhere)
 - adds notchroom's hooks to `~/.claude/settings.json`, keeping everything else in that file as it was (a backup goes next to it as `settings.json.bak-notchroom`)
-- adds a LaunchAgent so notchroom starts at login and restarts if it ever crashes
+- adds a LaunchAgent so notchroom starts at login and restarts if it ever crashes, and offers the XPC service that carries permission answers
 
 Sessions that are already running pick up the hooks the next time they start. After pulling changes, `make update` rebuilds and restarts it.
 
 ## Usage
 
-Hover the notch to open the room. Everything in it has a card when you hover it:
+Hover the notch to open the room; it closes when the mouse leaves. To keep it open while you work, click the strip at the top of the room (behind the notch), and click it again to close. Everything in the room has a card when you hover it:
 
 | Hover | Shows | Click |
 | --- | --- | --- |
 | A character or a desk | the project, what each session is doing, any permission question, the ideas | the character's terminal comes to the front |
 | An idea in a card | | files it in stash and takes it off the desk |
-| The whiteboard | today's active time, tool calls and sessions, per project | |
+| The wall clock | today's active time, tool calls and sessions, per project | |
+| The strip behind the notch | | keeps the room open while you work; click again to close |
 | The record player | the song, with its cover | |
 | The cat | where it is napping | it says hi |
 
@@ -68,7 +69,7 @@ The room also opens by itself for a few seconds when a session starts waiting fo
 
 When a session needs permission, its card shows the full command and three buttons. **Allow** and **Deny** answer for you; **Terminal** hands the question back to the terminal's own prompt. If nothing is clicked within 20 seconds, the terminal gets it anyway. notchroom only holds a request while it is running, so with notchroom closed, permission prompts behave exactly as before.
 
-**Allow** is only offered when the card shows the whole request: a shell command of up to 300 characters, or a file tool with its full path. Anything longer or any other tool can be denied from the notch, but has to be allowed in the terminal.
+**Allow** is only offered when the card shows the whole request: a shell command of up to 200 characters (with any invisible or direction-changing characters spelled out, like `\u{202E}`), or a file tool with its full path. Anything longer, and any other tool, can be denied from the notch but has to be allowed in the terminal. Answering from the notch needs notchroom to run from its LaunchAgent (`make install`); started any other way, permission prompts simply stay in the terminal.
 
 ## Configuration
 
@@ -96,22 +97,22 @@ Claude Code runs `notchroom --hook` on every hook event (session start and end, 
 | Where | What |
 | --- | --- |
 | `~/.claude/notchroom/<session>.json` | each session's state, what it is doing, its permission question, its process |
-| `~/.claude/notchroom/log/` | one line per hook event for the whiteboard, kept for a week |
+| `~/.claude/notchroom/log/` | one line per hook event for today's numbers, kept for a week |
 | `~/.claude/notchroom/ideas/` | each project's ideas, refreshed daily |
 | `~/.claude/notchroom/party` | the last push or green test run |
-| `~/.claude/notchroom/answers/` | the socket a waiting permission request listens on (see Security) |
 | `~/.claude/notchroom/config` | your settings |
 
 A session that crashes without saying goodbye disappears once its process is gone. Commit counts come from `git`, the sun's position is computed locally, and the coordinates are the main city of your time zone (from the system's `zone.tab`), so notchroom never asks for your location.
 
 ## Security
 
-Answering a permission request from the notch must not become a way around it. A waiting hook listens on a Unix socket, readable only by you, and accepts an answer only when:
+Answering a permission request from the notch must not become a way around it. The answer travels over XPC, not through a file or a socket anything could write to:
 
-- the process on the other end runs the notchroom binary itself (checked by its process id, not by anything it says), so a script, or a background command an agent started earlier, can't approve anything
-- the answer names the request it is for (a random id per request), so a late click can't answer a newer request than the one it was shown
+- the waiting hook asks a Mach service that launchd only hands to the notchroom it started from the LaunchAgent, so nothing else can stand in for the room
+- both ends require the other to be this exact build, by code signature (`setCodeSigningRequirement` with notchroom's own code hash). macOS checks that against the running process itself, so a script, or a background command an agent started earlier, can't answer, not even by `exec`-ing into notchroom halfway
+- each answer is the reply to one request, so a late click can't approve a newer request than the one it was shown, and a card only ever has buttons for one question
 
-What this can't stop is something that already controls your Mac as you, for example by sending synthetic clicks with Accessibility access. The `--test` self-check attacks the socket both ways on every run.
+What this can't stop is something that already controls your Mac as you, for example one sending synthetic clicks with Accessibility access, or loading its own LaunchAgent before notchroom's. The `--test` self-check runs the real XPC path on every run, including a peer with the wrong signature.
 
 ## Privacy
 
@@ -140,9 +141,9 @@ Sources/
 ├── Pixels.swift     colors, cached bitmaps and text, sprites
 ├── Hook.swift       --hook: turns Claude Code hook events into state files
 ├── Sessions.swift   sessions, projects, desks, focusing a terminal
-├── Answer.swift     the checked channel that carries Allow / Deny from the notch to a waiting hook
+├── Answer.swift     Allow / Deny from the notch to a waiting hook, over code-signature-checked XPC
 ├── Ideas.swift      per-project ideas from claude -p, filing them in stash
-├── Today.swift      the whiteboard's numbers
+├── Today.swift      today's numbers (the clock's card)
 ├── Sky.swift        sun position and weather
 ├── Music.swift      what resona is playing
 ├── Install.swift    adding and removing the hooks in ~/.claude/settings.json
