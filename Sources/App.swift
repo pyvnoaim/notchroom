@@ -29,9 +29,10 @@ func runApp() {
     var notch = notchRect(), peekUntil = Date.distantPast, asked = Set<String>(), turn = 0, lastTarget = NSRect.zero
     var lastParty = started, coverURL: String?
 
+    var earWidth: CGFloat = 0 // measured once a second with the data, not on every tick and mouse move
     func layout(tick: Bool = false) {
         room.notchWidth = notch.width
-        let ear = room.earWidth()
+        let ear = earWidth
         let small = NSRect(x: notch.minX - ear, y: notch.minY, width: notch.width + 2 * ear, height: notch.height)
         let w = max(CGFloat(Room.cols) * Room.p + 28, small.width), h = notch.height + CGFloat(Room.rows) * Room.p + 16
         let big = NSRect(x: notch.midX - w / 2, y: notch.maxY - h, width: w, height: h)
@@ -51,15 +52,23 @@ func runApp() {
             lastTarget = target
         }
         let mouse = hovering ? NSPoint(x: m.x - panel.frame.minX, y: m.y - panel.frame.minY) : nil
-        // a frame costs a few ms: the timer animates at 10 fps, a mouse move redraws only when it changes something
-        if tick || was != room.expanded || room.mouseMatters(room.mouse, mouse) { room.needsDisplay = true }
+        // a frame costs a few ms: open, the timer animates at 10 fps and a mouse move redraws only when it changes
+        // something; closed, it redraws only when what the notch shows changes (each redraw also costs the window server)
+        if (tick && (room.expanded || room.earsChanged())) || was != room.expanded || room.mouseMatters(room.mouse, mouse) {
+            room.needsDisplay = true
+        }
         room.mouse = mouse
     }
     // hover follows the mouse directly; mouse-moved global monitors need no accessibility permission
-    NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { _ in layout() }
+    // closed, a move far below the notch can't open it: dropped after one comparison, since this runs for every
+    // mouse move anywhere on screen
+    NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { _ in
+        if room.expanded || NSEvent.mouseLocation.y > notch.minY - 40 { layout() }
+    }
     NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { e in layout(); return e }
 
     func everyMinute() {
+        refreshIdeas(room.desks)
         let recent = recentProjects()
         room.recentRank = Dictionary(uniqueKeysWithValues: recent.enumerated().map { ($1, $0) })
         room.sun = coords.map { sunElevation(lat: $0.lat, lon: $0.lon, at: Date()) }
@@ -85,16 +94,18 @@ func runApp() {
     }
 
     everyMinute()
-    Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-        room.step()
+    let timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+        room.step(animate: room.expanded) // closed, nobody needs to see them walk: they catch up when it opens
         if room.tick % 10 == 1 {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             notch = notchRect()
             room.agents = loadAgents()
+            defer { earWidth = room.earWidth() }
             room.desks = deskProjects(room.agents, room.recentRank.sorted { $0.value < $1.value }.map(\.key))
-            room.ideas = Dictionary(uniqueKeysWithValues: room.desks.map { ($0, ideas($0)) })
+            if room.tick % 100 == 1 || room.desks.contains(where: { room.ideas[$0] == nil }) {
+                room.ideas = Dictionary(uniqueKeysWithValues: room.desks.map { ($0, ideas($0)) })
+            }
             if room.desks.contains(where: { room.growth[$0] == nil }) { countCommits() } // a desk that just appeared
-            refreshIdeas(room.desks)
 
             // a new permission question peeks the room open with its card
             // and a sound, for when you're looking somewhere else
@@ -139,5 +150,6 @@ func runApp() {
         }
         layout(tick: true)
     }
+    timer.tolerance = 0.03 // lets macOS batch our wakeups with others'
     app.run()
 }

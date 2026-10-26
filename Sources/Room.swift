@@ -89,8 +89,9 @@ final class Room: NSView {
 
     // MARK: motion, once a tick
 
-    func step() {
+    func step(animate: Bool = true) {
         tick += 1
+        guard animate else { return }
         let goals = stations()
         for a in agents {
             if walkers[a.id] == nil { walkers[a.id] = Walker(x: Room.door.0, y: Room.door.1, agent: a) }
@@ -188,6 +189,15 @@ final class Room: NSView {
         let label = statusLabel().map { $0.size.width + 30 } ?? 0
         let w = min(max(heads, label), 170) // never wider than this, whatever is going on
         return w == 0 ? 0 : (w / 24).rounded(.up) * 24
+    }
+
+    private var lastEars = ""
+    /// Whether the collapsed notch would look different now: other heads or states, another status line, a blink.
+    func earsChanged() -> Bool {
+        let blinking = agents.contains { $0.state == "waiting" }
+        let now = agents.map { "\($0.id)\($0.state)" }.joined() + (status()?.text ?? "") + (blinking ? "\(tick / 4 % 2)" : "")
+        defer { lastEars = now }
+        return now != lastEars
     }
 
     /// Whether moving the mouse changes the picture: something else hovered, or inside a card (its rows light up).
