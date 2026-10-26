@@ -66,14 +66,23 @@ func growth(_ project: String) -> (commits: Int, released: Bool) {
             !capture(["git", "-C", path, "tag", "-l", "v[1-9]*"]).isEmpty)
 }
 
+/// A process's parent, from the kernel's process table. Unlike proc_pidinfo this also works across processes owned
+/// by root, such as the `login` that sits between a terminal app and its shells.
+func parent(_ pid: Int32) -> Int32? {
+    var info = kinfo_proc(), size = MemoryLayout<kinfo_proc>.stride, mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+    guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+    return info.kp_eproc.e_ppid
+}
+
 /// Brings the terminal of a session to the front: in Ghostty the very terminal (matched by the session's
 /// directory), anywhere else the terminal app itself.
 // ponytail: two sessions started in the same directory, and Ghostty picks the first of them
 func focusTerminal(_ pid: Int32) {
     var p = pid, app: NSRunningApplication?
-    while p > 1, let i = procInfo(p) {
+    while p > 1 {
         if let a = NSRunningApplication(processIdentifier: p) { app = a; break }
-        p = i.ppid
+        guard let up = parent(p) else { break }
+        p = up
     }
     guard let app else { return }
     var vinfo = proc_vnodepathinfo()

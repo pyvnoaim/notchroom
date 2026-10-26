@@ -70,6 +70,10 @@ func test() {
     DispatchQueue.global().async { refused = awaitAnswer("r", session: "s2", text: "x", approvable: true, via: { NSXPCConnection(listenerEndpoint: strict.endpoint) }, timeout: 3); done2.signal() }
     spin { done2.wait(timeout: .now()) == .success }
     if refused != nil || stranger.asked { fail("answer channel talked to a peer with another signature") }
+    // the walk from a session up to its terminal app crosses root-owned processes (login); parent() must get through
+    var ancestor = getpid(), steps = 0
+    while ancestor > 1, let next = parent(ancestor), steps < 64 { ancestor = next; steps += 1 }
+    if ancestor != 1 { fail("parent() stopped at \(ancestor) before launchd") }
     print("ok")
 }
 
