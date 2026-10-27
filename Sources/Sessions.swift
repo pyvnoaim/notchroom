@@ -68,8 +68,19 @@ func growth(_ project: String) -> (commits: Int, released: Bool) {
 
 /// Opens a new Claude Code session in a project: a Ghostty tab (or window) that starts in the project and types
 /// `claude` into your shell, so the tab stays a normal shell afterwards; Terminal.app when Ghostty isn't installed.
-func newSession(_ project: String) {
+/// When the project already runs in a VS Code-family editor, there instead: its window, then a Claude Code tab.
+func newSession(_ project: String, in app: NSRunningApplication? = nil) {
     let path = "\(devDir.path)/\(project)"
+    if let bundle = app?.bundleURL, let scheme = editorScheme(bundle) {
+        NSWorkspace.shared.open([URL(fileURLWithPath: path)], withApplicationAt: bundle, configuration: NSWorkspace.OpenConfiguration()) { _, _ in
+            // the extension opens its tab in whichever window has focus, so ask once the project's window has it
+            // ponytail: a fixed second for the window to come forward, poll the frontmost window if that proves short
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                if let u = URL(string: "\(scheme)://anthropic.claude-code/open") { NSWorkspace.shared.open(u) }
+            }
+        }
+        return
+    }
     let ghostty = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mitchellh.ghostty") != nil
     let script = ghostty
         ? ["on run argv", "tell application \"Ghostty\"", "set cfg to new surface configuration",
@@ -86,33 +97,72 @@ func newSession(_ project: String) {
 
 /// A process's parent, from the kernel's process table. Unlike proc_pidinfo this also works across processes owned
 /// by root, such as the `login` that sits between a terminal app and its shells.
-func parent(_ pid: Int32) -> Int32? {
+func parent(_ pid: Int32) -> Int32? { kinfo(pid)?.kp_eproc.e_ppid }
+
+func kinfo(_ pid: Int32) -> kinfo_proc? {
     var info = kinfo_proc(), size = MemoryLayout<kinfo_proc>.stride, mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
     guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
-    return info.kp_eproc.e_ppid
+    return info
 }
 
-/// Brings the terminal of a session to the front: in Ghostty the very terminal (matched by the session's
-/// directory), anywhere else the terminal app itself.
-// ponytail: two sessions started in the same directory, and Ghostty picks the first of them
-func focusTerminal(_ pid: Int32) {
-    var p = pid, app: NSRunningApplication?
+/// The terminal device a process writes to, such as /dev/ttys003; nil for one without a terminal.
+func tty(_ pid: Int32) -> String? {
+    guard let dev = kinfo(pid)?.kp_eproc.e_tdev, dev != -1, let name = devname(dev, S_IFCHR) else { return nil }
+    return "/dev/" + String(cString: name)
+}
+
+/// The URL scheme of a VS Code-family editor (VS Code, Cursor, Windsurf, VSCodium…), from its product.json; nil for
+/// any other app.
+func editorScheme(_ bundle: URL) -> String? {
+    guard let d = try? Data(contentsOf: bundle.appendingPathComponent("Contents/Resources/app/product.json")),
+          let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+    return j["urlProtocol"] as? String
+}
+
+/// The app a session runs in: the first ancestor with a Dock icon, so VS Code's terminal resolves to VS Code
+/// rather than to the Code Helper that owns its shells.
+func hostApp(_ pid: Int32) -> NSRunningApplication? {
+    var p = pid
     while p > 1 {
-        if let a = NSRunningApplication(processIdentifier: p) { app = a; break }
-        guard let up = parent(p) else { break }
+        if let a = NSRunningApplication(processIdentifier: p), a.activationPolicy == .regular { return a }
+        guard let up = parent(p) else { return nil }
         p = up
     }
-    guard let app else { return }
+    return nil
+}
+
+/// Brings the terminal of a session to the front: in Ghostty the very terminal, in a VS Code-family editor the
+/// window holding that folder, anywhere else the app itself. Ghostty can't tell which terminal holds a process, so
+/// when several share the session's directory, the session's own tty gets a marker title for a moment to find it.
+// ponytail: the marker can land mid-way through Claude's own output; a stray frame at worst, the next redraw fixes it
+func focusTerminal(_ pid: Int32) {
+    guard let app = hostApp(pid) else { return }
     var vinfo = proc_vnodepathinfo()
     let cwd = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vinfo, Int32(MemoryLayout<proc_vnodepathinfo>.size)) > 0
         ? withUnsafeBytes(of: vinfo.pvi_cdir.vip_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) } : ""
+    if let bundle = app.bundleURL, editorScheme(bundle) != nil, !cwd.isEmpty {
+        NSWorkspace.shared.open([URL(fileURLWithPath: cwd)], withApplicationAt: bundle, configuration: NSWorkspace.OpenConfiguration()) // reuses the folder's window
+        return
+    }
     guard app.bundleIdentifier == "com.mitchellh.ghostty", !cwd.isEmpty else { app.activate(); return }
-    let script = ["on run argv", "tell application \"Ghostty\"", "repeat with t in terminals",
-                  "if working directory of t is item 1 of argv then", "focus t", "return", "end if", "end repeat", "activate",
-                  "end tell", "end run"]
+    let script = ["on run argv", "set {dir, dev, mark, osc} to argv", "tell application \"Ghostty\"", "set ts to {}",
+                  "repeat with t in terminals", "if working directory of t is dir then set end of ts to contents of t", "end repeat",
+                  "if (count of ts) is 0 then", "activate", "return", "end if",
+                  "if (count of ts) is 1 or dev is \"\" then", "focus item 1 of ts", "return", "end if",
+                  "set olds to {}", "repeat with t in ts", "set end of olds to name of t", "end repeat", "end tell",
+                  "do shell script \"printf \" & quoted form of osc & \" \" & quoted form of mark & \" > \" & quoted form of dev",
+                  "delay 0.2", "tell application \"Ghostty\"", "repeat with i from 1 to count of ts",
+                  "if name of item i of ts is mark then", "focus item i of ts",
+                  "do shell script \"printf \" & quoted form of osc & \" \" & quoted form of (item i of olds) & \" > \" & quoted form of dev",
+                  "return", "end if", "end repeat", "focus item 1 of ts", "end tell", "end run"]
     let run = Process()
     run.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    run.arguments = script.flatMap { ["-e", $0] } + [cwd] // the directory as an argument, never spliced into the script
+    // everything as arguments, never spliced into the script; osc is the set-title escape, printf's format
+    run.arguments = script.flatMap { ["-e", $0] } + [cwd, tty(pid) ?? "", "notchroom-\(pid)", "\u{1b}]2;%s\u{07}"]
     try? run.run()
 }
 
+/// The card's button for a session's app: "Open VS Code", "Open Ghostty", "Open terminal" when unknown.
+func openLabel(_ pid: Int32) -> String {
+    hostApp(pid)?.localizedName.map { $0 == "Code" ? "Open VS Code" : "Open \($0)" } ?? "Open terminal"
+}

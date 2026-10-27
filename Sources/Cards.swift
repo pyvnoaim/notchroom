@@ -49,7 +49,7 @@ extension Room {
             } else if a.ask != nil, a.state == "waiting" {
                 c.lines.append(("waiting for permission: answer it in the terminal", 0xffb347, 0xffb347, nil))
                 if let pid = a.pid {
-                    c.buttons = [("Open terminal", 0x8a80a8, { focusTerminal(pid) })]
+                    c.buttons = [(openLabel(pid), 0x8a80a8, { focusTerminal(pid) })]
                 }
             } else if let what = a.doing, a.state == "working" {
                 c.lines.append((what, 0xe8e3f5, 0x5fd38d, nil))
@@ -57,8 +57,8 @@ extension Room {
         }
         if asker != nil { return c } // a permission question: keep the card short, the buttons in reach
         if c.buttons.isEmpty {
-            c.buttons = (here.first?.pid.map { pid in [("Open terminal", UInt32(0x8a80a8), { focusTerminal(pid) })] } ?? [])
-                + [("New session", 0x5fd38d, { newSession(proj) })]
+            c.buttons = (here.first?.pid.map { pid in [(openLabel(pid), UInt32(0x8a80a8), { focusTerminal(pid) })] } ?? [])
+                + [("New session", 0x5fd38d, { newSession(proj, in: here.first?.pid.flatMap(hostApp)) })]
         }
         let list = ideas[proj] ?? []
         if list.isEmpty {

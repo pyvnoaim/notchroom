@@ -13,7 +13,7 @@ Running several Claude Code sessions at once means tabbing around to find out wh
 
 - **See every session at a glance.** Working, waiting for you, or idle, each one drawn where it is. Collapsed, the notch shows a head per session and one line of news: who needs you, or what the latest work is.
 - **Answer permission requests from the notch.** When a session asks to run something, the room opens with the full command and **Allow**, **Deny** and **Terminal** buttons.
-- **Jump to the right terminal, or start a new one.** Click a character or desk, then **Open terminal** to bring its terminal to the front (in Ghostty, the exact terminal), or **New session** to start a new Claude session in that project.
+- **Jump to the right terminal, or start a new one.** Click a character or desk, then **Open Ghostty** / **Open VS Code** (whichever app it runs in) to bring it to the front (in Ghostty the exact terminal, in VS Code the project's window), or **New session** to start a new Claude session in that project.
 - **A sound when you're needed.** For when you're looking at something else.
 - **What everyone is doing.** Click a desk: "Running make test", "Editing Room.swift", plus the project's commit count.
 - **Ideas on every desk.** Once a day per project, Claude Haiku reads the README and recent commits and pitches a few small features, which show up as speech bubbles. Click one to file it in [stash](https://github.com/pyvnoaim/stash).
@@ -57,7 +57,7 @@ Hover the notch to open the room; it closes when the mouse leaves. To keep it op
 
 | Click | Shows |
 | --- | --- |
-| A character | the project, what each session is doing, any permission question, the ideas, with **Open terminal** and **New session** |
+| A character | the project, what each session is doing, any permission question, the ideas, with **Open** (named after its app) and **New session** |
 | A desk | the same |
 | An idea in a card | files it in stash and takes it off the desk |
 | The wall clock | today's active time, tool calls and sessions, per project |
@@ -67,7 +67,7 @@ Hover the notch to open the room; it closes when the mouse leaves. To keep it op
 
 The room also opens by itself for a few seconds, with a sound, when a session starts waiting for you, and when a party starts.
 
-A new session opens as a Ghostty tab (or window) in the project's folder with `claude` typed into your shell, so the tab stays a normal shell when you quit it. Without Ghostty it opens in Terminal.
+A new session opens as a Ghostty tab (or window) in the project's folder with `claude` typed into your shell, so the tab stays a normal shell when you quit it. Without Ghostty it opens in Terminal. If the project already has a session in VS Code (or Cursor, Windsurf, VSCodium), it opens there instead: the project's window, then a Claude Code tab from the extension.
 
 ### Permission requests
 
@@ -92,7 +92,7 @@ sound = Tink
 
 All optional. notchroom works without any of them.
 
-- **Ghostty.** Clicking a character focuses the exact terminal it runs in, matched by directory. macOS asks once whether notchroom may control Ghostty. Other terminals are brought to the front as a whole.
+- **Ghostty.** Clicking a character focuses the exact terminal it runs in, matched by directory; when several terminals share it, the session's terminal title briefly carries a marker to find the right one. macOS asks once whether notchroom may control Ghostty. VS Code-family editors open the project's window; other apps are brought to the front as a whole.
 - **stash.** Filing an idea runs `claude -p` with only the `stash_capture` tool of a Claude Code MCP server named `stash`, so it uses the stash login Claude Code already has. The idea is filed as `<idea> @<project> #idea`.
 - **resona.** The record player reads `~/.resona/now-playing`, which resona writes whenever the song changes.
 
@@ -166,7 +166,6 @@ Text is drawn once into images and reused: the pixel font is a variable font, an
 ## Limitations
 
 - Six desks. With more than six projects active at once, the extra sessions only show in the collapsed notch.
-- Two sessions started in the same directory can't be told apart by Ghostty, so clicking either focuses the first one.
 - A permission request waits up to 20 seconds for the notch. If the terminal's prompt doesn't show while the notch waits, it shows up after you answer in the notch or press **Terminal**.
 
 ## Uninstall

@@ -344,7 +344,15 @@ final class Room: NSView {
             px(dx, dy, 24, 9, 0x8a5a3b); px(dx, dy, 24, 1, 0x6a4430); px(dx, dy + 8, 24, 1, 0x9c6a48)
             px(dx + 6, dy + 5, 12, 7, 0x222222); px(dx + 11, dy + 4, 2, 1, 0x222222)
             px(dx + 7, dy + 6, 10, 5, busy ? 0x1e3a5f : 0x333340)
-            if busy { for k in 0..<4 where (tick / 3 + k * 7 + d) % 5 != 0 { px(dx + 8, dy + 7 + k, 1 + (tick / 3 + k * 3) % 6, 1, 0x7fe0a0) } }
+            if busy { // code scrolling up: three indented lines of two-colour tokens, a cursor blinking on the newest
+                let base = tick / 4 + d * 5
+                for k in 0..<3 {
+                    let n = base + k, y = dy + 10 - k * 2, indent = n * 7 % 3, a = 1 + n * 5 % 4, b = n * 3 % 4
+                    px(dx + 8 + indent, y, a, 1, [0x7fe0a0, 0x9fb4ff, 0xffb86c][n % 3])
+                    if b > 0 { px(dx + 9 + indent + a, y, b, 1, 0xe8e3f5) }
+                    if k == 2, tick / 2 % 2 == 0 { px(dx + 10 + indent + a + b, y, 1, 1, 0xffffff) }
+                }
+            }
             px(dx + 8, dy + 2, 8, 2, 0xbbbbbb)
             // decor that comes with growth: cactus at 25 commits, a second screen at 75, books at 150, a trophy at v1
             if g.commits >= 25 { px(dx + 20, dy + 5, 3, 3, 0x8b4a2b); px(dx + 21, dy + 7, 1, 3, 0x3f8f4f); px(dx + 20, dy + 8, 1, 1, 0x3f8f4f) }
