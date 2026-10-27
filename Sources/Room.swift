@@ -331,6 +331,7 @@ final class Room: NSView {
 
         // workstations: three across, two deep; monitor faces the chair, nameplate on the floor below
         var anchors: [String: NSPoint] = [:]
+        var lit: [(NSImage, NSPoint)] = [] // a working desk's name, put on after nightfall so the dark doesn't dim it
         let hoverDesk = mouse.flatMap { m in desks.indices.first { cell($0).contains(m) } }
         for (d, proj) in desks.enumerated() {
             let (dx, dy) = deskOrigin(d)
@@ -377,10 +378,11 @@ final class Room: NSView {
             px(dx + 7, dy - 6, 10, 6, 0x555566); px(dx + 7, dy - 7, 10, 2, 0x3a3a4a)
             anchors[proj] = pt(dx + 12, dy + 12)
 
-            let plate = text(String(proj.prefix(12)), 9, here.isEmpty ? 0xc9b8a6 : 0xffffff)
+            let working = here.contains { $0.state == "working" }
+            let plate = text(String(proj.prefix(12)), 9, working ? 0xddd4c8 : here.isEmpty ? 0x857668 : 0xa89888)
             let s = plate.size, at = NSPoint(x: pt(dx + 12, 0).x - s.width / 2, y: pt(0, dy - 11).y)
             NSColor(white: 0, alpha: 0.35).setFill(); NSRect(origin: at, size: s).insetBy(dx: -3, dy: -1).fill()
-            plate.put(at: at)
+            if working { lit.append((plate, at)) } else { plate.put(at: at) }
             targets.append((cell(d), .desk(proj)))
         }
 
@@ -439,6 +441,7 @@ final class Room: NSView {
                 }
             }
         }
+        for (plate, at) in lit { plate.put(at: at) }
         NSGraphicsContext.restoreGraphicsState()
 
         // the strip behind the notch: click it to keep the room open while you work
