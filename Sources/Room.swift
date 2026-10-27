@@ -344,7 +344,20 @@ final class Room: NSView {
             px(dx, dy, 24, 9, 0x8a5a3b); px(dx, dy, 24, 1, 0x6a4430); px(dx, dy + 8, 24, 1, 0x9c6a48)
             px(dx + 6, dy + 5, 12, 7, 0x222222); px(dx + 11, dy + 4, 2, 1, 0x222222)
             px(dx + 7, dy + 6, 10, 5, busy ? 0x1e3a5f : 0x333340)
-            if busy { // code scrolling up: three indented lines of two-colour tokens, a cursor blinking on the newest
+            // the screen shows what they're at: a firewall going up while a command runs, a highlight scanning text
+            // while reading or searching, dots while thinking, and code scrolling for anything else
+            let verb = busy ? here.first { $0.state == "working" }?.doing?.split(separator: " ").first ?? "" : ""
+            if verb == "Running" { // bricks laid left to right, bottom row up, then torn down and started again
+                let rows = [[(0, 3), (4, 3), (8, 2)], [(0, 1), (2, 3), (6, 3)], [(0, 3), (4, 3), (8, 2)]]
+                let laid = (tick / 3 + d * 5) % 12
+                for (r, bricks) in rows.enumerated() { for (k, (bx, bw)) in bricks.enumerated() where r * 3 + k < laid {
+                    px(dx + 7 + bx, dy + 6 + r * 2, bw, 1, (r + k) % 2 == 0 ? 0xd0603a : 0xb84a2a)
+                } }
+            } else if verb == "Reading" || verb == "Searching" {
+                for k in 0..<3 { px(dx + 8, dy + 10 - k * 2, 8 - k * 2, 1, (tick / 3 + d) % 3 == k ? 0xffe066 : 0x8090a8) }
+            } else if verb == "Thinking" {
+                for k in 0..<3 { px(dx + 9 + k * 2, dy + 8, 1, 1, (tick / 2) % 3 == k ? 0xffffff : 0x5a6a88) }
+            } else if busy { // code scrolling up: three indented lines of two-colour tokens, a cursor blinking on the newest
                 let base = tick / 4 + d * 5
                 for k in 0..<3 {
                     let n = base + k, y = dy + 10 - k * 2, indent = n * 7 % 3, a = 1 + n * 5 % 4, b = n * 3 % 4
