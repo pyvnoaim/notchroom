@@ -379,7 +379,7 @@ final class Room: NSView {
             anchors[proj] = pt(dx + 12, dy + 12)
 
             let working = here.contains { $0.state == "working" }
-            let plate = text(String(proj.prefix(12)), 9, working ? 0xddd4c8 : here.isEmpty ? 0x857668 : 0xa89888)
+            let plate = text(String((proj as NSString).lastPathComponent.prefix(12)), 9, working ? 0xddd4c8 : here.isEmpty ? 0x857668 : 0xa89888)
             let s = plate.size, at = NSPoint(x: pt(dx + 12, 0).x - s.width / 2, y: pt(0, dy - 11).y)
             NSColor(white: 0, alpha: 0.35).setFill(); NSRect(origin: at, size: s).insetBy(dx: -3, dy: -1).fill()
             if working { lit.append((plate, at)) } else { plate.put(at: at) }

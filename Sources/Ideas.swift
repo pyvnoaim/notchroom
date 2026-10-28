@@ -1,8 +1,11 @@
 // Ideas for each desk, written once a day per project by `claude -p` (Haiku, no tools), and filing one in stash.
 import Foundation
 
+/// One file per project; a nested project's slash would be a folder that isn't there.
+func ideasFile(_ project: String) -> URL { ideasDir.appendingPathComponent(project.replacingOccurrences(of: "/", with: ":") + ".txt") }
+
 func ideas(_ project: String) -> [String] {
-    let s = (try? String(contentsOf: ideasDir.appendingPathComponent(project + ".txt"), encoding: .utf8)) ?? ""
+    let s = (try? String(contentsOf: ideasFile(project), encoding: .utf8)) ?? ""
     return s.split(separator: "\n").map(String.init)
 }
 
@@ -53,7 +56,7 @@ func refreshIdeas(_ projects: [String]) {
     let stale = projects.first { p in
         guard FileManager.default.fileExists(atPath: "\(devDir.path)/\(p)/.git"),
               Date().timeIntervalSince(lastTry[p] ?? .distantPast) > 3600 else { return false }
-        return Date().timeIntervalSince(mtime("\(ideasDir.path)/\(p).txt") ?? .distantPast) > 86400
+        return Date().timeIntervalSince(mtime(ideasFile(p).path) ?? .distantPast) > 86400
     }
     guard let p = stale else { return }
     lastTry[p] = Date()
@@ -62,7 +65,7 @@ func refreshIdeas(_ projects: [String]) {
     ideaRun = claudeRun(["sh", "-c", ideaScript, "sh", "\(devDir.path)/\(p)", p]) { ok, text in
         let lines = cleanIdeas(text)
         if ok, !lines.isEmpty {
-            try? (lines.joined(separator: "\n") + "\n").write(to: ideasDir.appendingPathComponent(p + ".txt"), atomically: true, encoding: .utf8)
+            try? (lines.joined(separator: "\n") + "\n").write(to: ideasFile(p), atomically: true, encoding: .utf8)
         }
         ideaRun = nil
     }
@@ -76,7 +79,7 @@ func fileIdea(_ project: String, _ idea: String, done: @escaping (Bool) -> Void)
                    "--no-session-persistence", "Call stash_capture once to add exactly this one line to stash, then reply ok. The line: \(line)"]) { ok, _ in
         if ok {
             let rest = ideas(project).filter { $0 != idea }
-            try? (rest.joined(separator: "\n") + (rest.isEmpty ? "" : "\n")).write(to: ideasDir.appendingPathComponent(project + ".txt"), atomically: true, encoding: .utf8)
+            try? (rest.joined(separator: "\n") + (rest.isEmpty ? "" : "\n")).write(to: ideasFile(project), atomically: true, encoding: .utf8)
         }
         done(ok)
     }

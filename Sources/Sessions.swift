@@ -6,11 +6,16 @@ struct Agent {
     var ask: String? = nil // a permission request, if one is open: for placing the session only, never for answering it
 }
 
-/// The project a session belongs to: the folder right under ~/dev, else the cwd's own name.
-func project(of cwd: String) -> String {
-    let dev = devDir.path + "/"
+/// The project a session belongs to: the outermost git repo under ~/dev (so ~/dev/group/repo is "group/repo",
+/// and a worktree or submodule stays with its repo), else the folder right under ~/dev, else the cwd's own name.
+func project(of cwd: String, in root: String = devDir.path) -> String {
+    let dev = root + "/"
     guard cwd.hasPrefix(dev) else { return (cwd as NSString).lastPathComponent }
-    return String(cwd.dropFirst(dev.count).split(separator: "/").first ?? "")
+    let parts = cwd.dropFirst(dev.count).split(separator: "/")
+    let n = (1..<max(parts.count, 1) + 1).first {
+        FileManager.default.fileExists(atPath: dev + parts.prefix($0).joined(separator: "/") + "/.git")
+    } ?? 1
+    return parts.prefix(n).joined(separator: "/")
 }
 
 func loadAgents() -> [Agent] {

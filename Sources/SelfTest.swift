@@ -18,6 +18,13 @@ func test() {
     for (ev, want) in cases where state(for: ev) != want { fail("state(for: \(ev)) -> \(state(for: ev) ?? "nil")") }
     let projects = [(devDir.path + "/kova/src/app", "kova"), (devDir.path + "/cue", "cue"), (devDir.path, "dev"), ("/tmp/x", "x")]
     for (cwd, want) in projects where project(of: cwd) != want { fail("project(of: \(cwd)) -> \(project(of: cwd))") }
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("notchroom-test-\(getpid())").path
+    for repo in ["group/repo", "kova", "kova/.claude/worktrees/feat"] {
+        try? FileManager.default.createDirectory(atPath: "\(tmp)/\(repo)/.git", withIntermediateDirectories: true)
+    }
+    let nested = [("group/repo/src", "group/repo"), ("group/other", "group"), ("kova/.claude/worktrees/feat/x", "kova")]
+    for (cwd, want) in nested where project(of: "\(tmp)/\(cwd)", in: tmp) != want { fail("project(of: \(cwd)) -> \(project(of: "\(tmp)/\(cwd)", in: tmp))") }
+    try? FileManager.default.removeItem(atPath: tmp)
     let got = cleanIdeas("Here you go\n- Add 2FA login\n2. Dark mode — per page\n\n* " + String(repeating: "x", count: 95))
     if got != ["Here you go", "Add 2FA login", "Dark mode: per page"] { fail("cleanIdeas -> \(got)") }
     if doing("Edit", ["file_path": "/a/b/main.swift"]) != "Editing main.swift" { fail("doing Edit") }
