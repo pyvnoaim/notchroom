@@ -26,8 +26,8 @@ func runApp() {
     panel.orderFrontRegardless()
 
     let started = Date().timeIntervalSince1970, coords = homeCoords()
-    var notch = notchRect(), peekUntil = Date.distantPast, asked = Set<String>(), turn = 0, lastTarget = NSRect.zero
-    var lastParty = started, coverURL: String?
+    var notch = notchRect(), peekUntil = Date.distantPast, asked = Set<String>(), turn = 0, ideaTurn = 0, lastTarget = NSRect.zero
+    var lastParty = started, coverURL: String?, lastStates: [String: String] = [:]
 
     var earWidth: CGFloat = 0 // measured once a second with the data, not on every tick and mouse move
     var pace: () -> Void = {} // set below, once the timer's work is defined
@@ -49,9 +49,8 @@ func runApp() {
         panel.ignoresMouseEvents = !room.expanded // closed, clicks fall through to the menu bar
         let target = room.expanded ? big : small
         if target != lastTarget {
-            // animator() resizes without blocking the run loop like setFrame(_:display:animate:) does
-            if lastTarget == .zero { panel.setFrame(target, display: true) }
-            else { NSAnimationContext.runAnimationGroup { $0.duration = 0.15; panel.animator().setFrame(target, display: true) } }
+            // snaps both ways: an animated resize redraws the whole view on every frame and lags
+            panel.setFrame(target, display: true)
             lastTarget = target
         }
         let mouse = hovering ? NSPoint(x: m.x - panel.frame.minX, y: m.y - panel.frame.minY) : nil
@@ -113,6 +112,15 @@ func runApp() {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             notch = notchRect()
             room.agents = loadAgents()
+            // an agent that just finished says so
+            if !room.pointingAtBubble, let a = room.agents.first(where: { $0.state == "idle" && lastStates[$0.id] == "working" }) {
+                room.bubble = (a.project, "done!", false); room.bubbleUntil = Date().addingTimeInterval(4)
+            }
+            lastStates = Dictionary(room.agents.map { ($0.id, $0.state) }) { $1 }
+            // pinned open on a quiet room, the cat speaks up every couple of minutes or so
+            if room.keptOpen, !room.agents.contains(where: { $0.state != "idle" }), Int.random(in: 0..<120) == 0 {
+                room.cat.meow = Date().addingTimeInterval(2)
+            }
             defer { earWidth = room.earWidth() }
             room.desks = deskProjects(room.agents, room.recentRank.sorted { $0.value < $1.value }.map(\.key))
             if every(10, "ideas") || room.desks.contains(where: { room.ideas[$0] == nil }) {
@@ -155,11 +163,31 @@ func runApp() {
         }
         if every(60, "minute") { everyMinute() }
         if every(600, "ten minutes") { everyTenMinutes() }
-        if every(8, "bubble") { // next desk with ideas takes the speech bubble
-            let talkers = room.desks.filter { !(room.ideas[$0] ?? []).isEmpty }
+        // every half minute someone says something for ten seconds, taking turns: an idea from a desk nobody is
+        // working at, what an agent is at, an idea, a number about a desk; a turn with nothing to say passes on
+        if !room.pointingAtBubble, every(30, "bubble") { // never swapped out from under the pointer
             turn += 1
-            let p = talkers.isEmpty ? nil : talkers[turn % talkers.count]
-            room.bubble = p.map { ($0, room.ideas[$0]!.randomElement()!) }
+            let busy = Set(room.agents.filter { $0.state != "idle" }.map(\.project))
+            let thinkers = room.desks.filter { !busy.contains($0) && !(room.ideas[$0] ?? []).isEmpty }
+            let doers = room.agents.filter { $0.state == "working" && $0.doing != nil }
+            let facts = room.desks.compactMap { p -> (String, String)? in
+                if let n = room.today.perProject[p], n > 0 { return (p, "\(n) tool calls today") }
+                if let c = room.growth[p]?.commits, c > 0 { return (p, "\(c) commits so far") }
+                return nil
+            }
+            var said: (project: String, text: String, idea: Bool)?
+            for k in 0..<4 where said == nil {
+                switch (turn + k) % 4 {
+                case 0 where !thinkers.isEmpty, 2 where !thinkers.isEmpty:
+                    ideaTurn += 1
+                    let p = thinkers[ideaTurn % thinkers.count], list = room.ideas[p]!
+                    said = (p, list[ideaTurn / thinkers.count % list.count], true)
+                case 1 where !doers.isEmpty: let a = doers[turn % doers.count]; said = (a.project, a.doing!, false)
+                case 3 where !facts.isEmpty: let f = facts[turn % facts.count]; said = (f.0, f.1, false)
+                default: break
+                }
+            }
+            room.bubble = said; room.bubbleUntil = Date().addingTimeInterval(10)
         }
         layout(tick: true)
     }

@@ -100,14 +100,14 @@ let canvas = NSSize(width: 940, height: 300)
 // the hero: a few seconds of the room; someone new walks in, ideas get pitched, tests pass
 do {
     let v = demoRoom()
-    v.bubble = ("cli", demoIdeas["cli"]![0])
+    v.bubble = ("cli", demoIdeas["cli"]![0], true); v.bubbleUntil = .distantFuture
     let url = out.appendingPathComponent("room.gif")
     let frames = 80
     let gif = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frames, nil)!
     CGImageDestinationSetProperties(gif, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
     for f in 0..<frames {
         if f == 6 { v.agents.append(person("a6", "working", "cli", doing: "Running cargo build")) }
-        if f == 30 { v.bubble = ("api", demoIdeas["api"]![1]) }
+        if f == 30 { v.bubble = ("api", demoIdeas["api"]![1], true) }
         if f == 52 { v.throwParty("api", "tests green!") }
         v.step()
         CGImageDestinationAddImage(gif, framed(v, canvas: NSSize(width: v.bounds.width + 24, height: v.bounds.height + 12), flat: true).cgImage!, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary)

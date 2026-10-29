@@ -9,7 +9,7 @@ struct Cat { var x = 120.0, y = 20.0, tx = 120.0, ty = 20.0, mode = "sit", until
 struct Particle { var x: Double, y: Double, vx: Double, vy: Double, color: UInt32 }
 
 /// What a hover card is about.
-enum Target: Equatable { case desk(String), agent(String), clock, player, cat, pin }
+enum Target: Equatable { case desk(String), agent(String), clock, player, cat, pin, bubble }
 
 /// A hover card: a title with a status chip, an optional picture, lines (some clickable) and buttons.
 struct Card {
@@ -26,7 +26,11 @@ final class Room: NSView {
     var ideas: [String: [String]] = [:]
     var filing: [String: String] = [:] // idea -> "filing…" / "filed" / "couldn't file"
     var growth: [String: (commits: Int, released: Bool)] = [:]
-    var bubble: (project: String, text: String)?
+    var bubble: (project: String, text: String, idea: Bool)?, bubbleUntil = Date.distantPast
+    // everywhere the current bubble has been drawn (puff and full, which may sit on different sides of its speaker):
+    // pointing anywhere in it keeps an idea open, and holds the bubble from being swapped
+    var bubbleArea: (text: String, rect: NSRect)?
+    var pointingAtBubble: Bool { mouse.map { m in bubbleArea?.rect.insetBy(dx: 0, dy: -14).contains(m) == true } == true }
     var sun = 30.0, weather = Weather()
     var song: Song?, cover: NSImage?
     var today = Stats()
@@ -176,19 +180,19 @@ final class Room: NSView {
         if let a = agents.first(where: { $0.state == "waiting" }) { return ("\(a.project) needs you", 0xffb347) }
         let busy = agents.filter { $0.state == "working" }
         if let a = busy.max(by: { $0.seen < $1.seen }) {
-            return ((busy.count > 1 ? "\(busy.count) working · " : "") + "\(a.project): \(a.doing ?? "working")", 0x5fd38d)
+            return ("\(a.project): \(a.doing ?? "working")", 0x5fd38d) // the heads already say how many
         }
         if let s = song, s.playing { return ("♫ \(s.title)", 0xe8e3f5) }
         return today.active >= 60 ? ("\(hm(today.active)) today", 0x8a80a8) : nil
     }
 
-    func statusLabel() -> NSImage? { status().map { text($0.text.count > 24 ? $0.text.prefix(23) + "…" : $0.text, 10, $0.color) } }
+    func statusLabel() -> NSImage? { status().map { text($0.text.count > 18 ? $0.text.prefix(17) + "…" : $0.text, 10, $0.color) } }
 
     /// Width of each side of the collapsed notch (heads left, status right), in steps of 24 so it doesn't jitter.
     func earWidth() -> CGFloat {
         let heads = agents.isEmpty ? 0 : CGFloat(min(agents.count, Room.maxHeads) * 11 + (agents.count > Room.maxHeads ? 24 : 0) + 16)
         let label = statusLabel().map { $0.size.width + 30 } ?? 0
-        let w = min(max(heads, label), 170) // never wider than this, whatever is going on
+        let w = min(max(heads, label), 140) // never wider than this, whatever is going on
         return w == 0 ? 0 : (w / 24).rounded(.up) * 24
     }
 
@@ -274,6 +278,7 @@ final class Room: NSView {
         px(152, 43, 4, 15, 0x24585c); px(208, 43, 4, 15, 0x24585c)
         px(168, 22, 26, 10, 0x6a4430); px(168, 23, 26, 9, 0x8a5a3b); px(173, 27, 2, 2, 0xf4efe6); px(184, 26, 5, 3, 0x5070d0)
         plant(140, 52); plant(204, 3); plant(146, 3)
+        px(148, 39, 5, 1, 0x2a2a2a); px(150, 40, 1, 6, 0x3a3a4a); px(148, 46, 5, 5, 0xc8b48a) // floor lamp by the couch, lit at night
         px(128, 25, 20, 11, 0x6a4430); px(128, 26, 20, 10, 0x8a5a3b)
         px(130, 28, 10, 7, 0x2a2a2a); px(131, 29, 7, 5, 0x111111); px(134, 31, 2, 2, 0xe05d5d)
         px(139, 29, 1, 5, 0xbbbbbb); px(138, 33, 1, 1, 0xbbbbbb)
@@ -460,7 +465,22 @@ final class Room: NSView {
             pinned = (t, drawCard(card, beside: anchor))
         } else {
             pinned = nil
-            if partyNow == nil, let b = bubble, let a = anchors[b.project], tick % 80 < 60 { drawBubble(b.text, at: a, icon: bulb) }
+            if partyNow == nil, let b = bubble, Date() < bubbleUntil, let a = anchors[b.project] {
+                if bubbleArea?.text != b.text { bubbleArea = nil }
+                // an idea is a small thought puff until you point at its desk or the puff; other bubbles say it outright
+                let onDesk = mouse.map { m in desks.firstIndex(of: b.project).map { cell($0).contains(m) } == true } == true
+                if !b.idea { drawBubble(b.text, at: a, icon: nil) }
+                else {
+                    let status = filing[b.text], open = onDesk || pointingAtBubble
+                    let r = open ? drawBubble(b.text, at: a, icon: bulb, hint: status ?? "click: file in stash · ⌥click: skip")
+                                 : drawBubble("…", at: a, icon: bulb)
+                    if open, status == nil { clicks.append((r, { [weak self] in
+                        if NSEvent.modifierFlags.contains(.option) { self?.skip(b.text, b.project) } else { self?.file(b.text, b.project) }
+                    })) }
+                    bubbleArea = (b.text, bubbleArea.map { $0.rect.union(r) } ?? r)
+                    targets.append((r, .bubble))
+                }
+            } else { bubbleArea = nil }
             if Date() < cat.meow { drawBubble("meow", at: pt(cx + 4, cy + 6), icon: nil) }
         }
     }
@@ -478,6 +498,7 @@ final class Room: NSView {
         if let c = clicks.last(where: { $0.rect.contains(m) }) { c.action(); needsDisplay = true; return }
         if pinned?.card.contains(m) == true { opened = nil; needsDisplay = true; return } // a click on the card that missed its rows and buttons closes it
         let t = hit(m)
+        if t == .bubble { return } // a puff: pointing at it opens it, there is nothing to click
         if t == .pin { keptOpen.toggle() } else { opened = t == opened ? nil : t } // a second click, or a click elsewhere, closes it
         if t == .cat { cat.meow = Date().addingTimeInterval(2) }
         needsDisplay = true

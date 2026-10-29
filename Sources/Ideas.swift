@@ -77,10 +77,13 @@ func fileIdea(_ project: String, _ idea: String, done: @escaping (Bool) -> Void)
     let line = "\(idea) @\(project) #idea"
     _ = claudeRun(["claude", "-p", "--model", "haiku", "--tools", "", "--allowedTools", "mcp__stash__stash_capture",
                    "--no-session-persistence", "Call stash_capture once to add exactly this one line to stash, then reply ok. The line: \(line)"]) { ok, _ in
-        if ok {
-            let rest = ideas(project).filter { $0 != idea }
-            try? (rest.joined(separator: "\n") + (rest.isEmpty ? "" : "\n")).write(to: ideasFile(project), atomically: true, encoding: .utf8)
-        }
+        if ok { dropIdea(project, idea) }
         done(ok)
     }
+}
+
+/// Takes an idea off its desk's list for good.
+func dropIdea(_ project: String, _ idea: String) {
+    let rest = ideas(project).filter { $0 != idea }
+    try? (rest.joined(separator: "\n") + (rest.isEmpty ? "" : "\n")).write(to: ideasFile(project), atomically: true, encoding: .utf8)
 }

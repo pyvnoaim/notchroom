@@ -4,7 +4,7 @@ import AppKit
 extension Room {
     func card(for t: Target) -> Card? {
         switch t {
-        case .pin: return nil
+        case .pin, .bubble: return nil
         case .agent(let id): return agents.first { $0.id == id }.map { projectCard($0.project, focus: id) }
         case .desk(let p): return projectCard(p)
         case .cat: return Card(title: "Byte", chip: (cat.mode == "sleep" ? "napping" : "on patrol", 0xe0905d),
@@ -68,16 +68,32 @@ extension Room {
             c.lines.append(("ideas · click one to file it in stash", 0x8a80a8, nil, nil))
             for idea in list {
                 let status = filing[idea]
-                c.lines.append((status.map { "\(idea)  (\($0))" } ?? idea, status == nil ? 0xe8e3f5 : 0x8a80a8, 0xffe066, status != nil ? nil : { [weak self] in
-                    self?.filing[idea] = "filing…"
-                    fileIdea(proj, idea) { ok in
-                        self?.filing[idea] = ok ? "filed" : "couldn't file"
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self?.filing[idea] = nil }
-                    }
-                }))
+                c.lines.append((status.map { "\(idea)  (\($0))" } ?? idea, status == nil ? 0xe8e3f5 : 0x8a80a8, 0xffe066,
+                                status != nil ? nil : { [weak self] in self?.file(idea, proj) }))
             }
         }
         return c
+    }
+
+    /// Files an idea in stash, showing how that went next to it for a few seconds.
+    func file(_ idea: String, _ proj: String) {
+        filing[idea] = "filing…"
+        fileIdea(proj, idea) { [weak self] ok in
+            guard let self else { return }
+            filing[idea] = ok ? "filed" : "couldn't file"
+            if ok, bubble?.text == idea { bubbleUntil = min(bubbleUntil, Date().addingTimeInterval(4)) } // shows "filed", then goes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                self?.filing[idea] = nil
+                if ok { self?.ideas[proj]?.removeAll { $0 == idea } } // gone from the desk, never filed twice
+            }
+        }
+    }
+
+    /// Drops an idea for good, without filing it.
+    func skip(_ idea: String, _ proj: String) {
+        dropIdea(proj, idea)
+        ideas[proj]?.removeAll { $0 == idea }
+        bubble = nil
     }
 
     /// A box with 2pt pixel corners, an outline and a hard drop shadow.
@@ -88,14 +104,19 @@ extension Room {
         hex(fill).setFill(); cut(r)
     }
 
-    /// A speech bubble above what is speaking (below it when there is no room), with an icon and a stepped tail.
-    func drawBubble(_ words: String, at a: NSPoint, icon: [String]?) {
+    /// A speech bubble above what is speaking (below it when there is no room), with an icon, a stepped tail and an
+    /// optional grey hint under the words. Near the left wall it opens rightward; past the middle, where the lounge
+    /// starts, leftward, so it stays off the lounge; in between, centered. Returns where it went.
+    @discardableResult
+    func drawBubble(_ words: String, at a: NSPoint, icon: [String]?, hint: String? = nil) -> NSRect {
         let label = text(words, 11, 0x1d1630, width: 230), size = label.size
+        let note = hint.map { text($0, 9, 0x6a6080) }, noteH = note.map { ceil($0.size.height) + 2 } ?? 0
         let inset: CGFloat = icon == nil ? 8 : 22
-        let w = ceil(size.width) + inset + 8, h = max(ceil(size.height), 12) + 12
+        let w = max(ceil(size.width), note.map { ceil($0.size.width) } ?? 0) + inset + 8, h = max(ceil(size.height), 12) + noteH + 12
         var y = a.y + 14
         if y + h > bounds.maxY - 6 { y = a.y - h - 14 }
-        let box = NSRect(x: min(max(a.x - w / 2, 8), bounds.width - w - 8), y: max(y, 8), width: w, height: h)
+        let x = a.x < bounds.width / 3 ? a.x - 20 : a.x > bounds.width / 2 ? a.x + 20 - w : a.x - w / 2
+        let box = NSRect(x: min(max(x, 8), bounds.width - w - 8), y: max(y, 8), width: w, height: h)
         let up = box.minY > a.y
         for (i, s) in [CGFloat(6), 4].enumerated() { // tail steps toward the speaker
             let ty = up ? box.minY - CGFloat(i + 1) * 5 : box.maxY + CGFloat(i) * 5 + 1
@@ -109,7 +130,9 @@ extension Room {
             sprite(icon, 0, 0, nil)
             (ox, oy, scale) = (sx, sy, ss)
         }
-        label.put(at: NSPoint(x: box.minX + inset, y: box.minY + 6))
+        label.put(at: NSPoint(x: box.minX + inset, y: box.minY + 6 + noteH))
+        note?.put(at: NSPoint(x: box.minX + inset, y: box.minY + 6))
+        return box
     }
 
     /// Draws a card beside what it is about (right, else left), never on top of it; returns where it went.
