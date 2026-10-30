@@ -69,9 +69,8 @@ extension Room {
                 + (repo.map { r in pick.names.contains(r) ? [] : [("new project \"\(r)\"", r)] } ?? []) + [("Inbox", "")]
             for (label, place) in places {
                 c.lines.append((label, 0xe8e3f5, 0x9fb4ff, { [weak self] in
-                    rememberPlace(proj, place)
                     self?.picking[proj] = nil
-                    self?.file(pick.idea, proj, names: pick.names)
+                    self?.file(pick.idea, proj, pick: (place, pick.names))
                 }))
             }
             c.lines.append(("not now", 0x8a80a8, nil, { [weak self] in self?.picking[proj] = nil; self?.filing[pick.idea] = nil }))
@@ -79,8 +78,8 @@ extension Room {
             let git = FileManager.default.fileExists(atPath: "\(devDir.path)/\(proj)/.git")
             c.lines.append((git ? "no ideas yet, Haiku is on it" : "not a git repo, no ideas", 0x8a80a8, nil, nil))
         } else {
-            c.lines.append((stashReady != false ? "ideas · click one to file it in stash" : "ideas · click one to copy it", 0x8a80a8, nil, nil))
-            if stashReady != false, let place = stashPlaces[proj] {
+            c.lines.append((stashReady ? "ideas · click one to file it in stash" : "ideas · click one to copy it", 0x8a80a8, nil, nil))
+            if stashReady, let place = stashPlaces[proj] {
                 c.lines.append(("going to \(place.isEmpty ? "Inbox" : place) · click to change", 0x8a80a8, nil,
                                 { [weak self] in rememberPlace(proj, nil); self?.needsDisplay = true }))
             }
@@ -93,17 +92,21 @@ extension Room {
         return c
     }
 
-    /// Files an idea in stash, showing how that went next to it for a few seconds; with no stash, copies it and it stays.
-    func file(_ idea: String, _ proj: String, names: [String]? = nil) {
-        guard stashReady != false else {
+    /// Files an idea in stash, showing how that went next to it for a few seconds. With no stash, or when filing
+    /// fails, it is copied instead and stays.
+    func file(_ idea: String, _ proj: String, pick: (place: String, names: [String])? = nil) {
+        func copy() {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(idea, forType: .string)
+        }
+        guard stashReady else {
+            copy()
             filing[idea] = "copied"
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.filing[idea] = nil }
             return
         }
         filing[idea] = "filing…"
-        fileIdea(proj, idea, names: names) { [weak self] result in
+        fileIdea(proj, idea, pick: pick) { [weak self] result in
             guard let self else { return }
             if case .ask(let names) = result {
                 if let waiting = picking[proj]?.idea, waiting != idea { filing[waiting] = nil } // one question per desk: the newest
@@ -112,7 +115,8 @@ extension Room {
                 return
             }
             let ok = switch result { case .yes, .misfiled: true; default: false }
-            filing[idea] = switch result { case .yes: "filed"; case .misfiled: "filed, check stash"; default: "couldn't file" }
+            if !ok { copy() }
+            filing[idea] = switch result { case .yes: "filed"; case .misfiled: "filed, check stash"; default: "couldn't file, copied" }
             if ok, bubble?.text == idea { bubbleUntil = min(bubbleUntil, Date().addingTimeInterval(4)) } // shows "filed", then goes
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
                 self?.filing[idea] = nil

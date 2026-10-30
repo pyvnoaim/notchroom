@@ -32,9 +32,10 @@ func test() {
     if stashProject("group/Repo", in: ["repo-old", "repo"]) != "repo" { fail("stashProject nested") }
     if stashProject("notchroom", in: ["notch", "Notch Room"]) != nil { fail("stashProject none") }
     if repoProject("group/my.repo") != nil || repoProject("group/my-repo") != "my-repo" { fail("repoProject") }
-    let result = #"{"type":"user","message":{"content":[{"type":"tool_result","is_error":%@,"content":[{"type":"text","text":"{\"added\":[]}"}]}]}}"#
-    if toolResults("{\"type\":\"system\"}\n" + String(format: result, "false")).first?["added"] == nil { fail("toolResults ok") }
-    if !toolResults(String(format: result, "true")).isEmpty { fail("toolResults error") }
+    let reply = #"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"added\":[]}"}]%@}}"#
+    if stashResult(Data(String(format: reply, "").utf8))?["added"] == nil { fail("stashResult ok") }
+    if stashResult(Data(("event: message\ndata: " + String(format: reply, "") + "\n\n").utf8))?["added"] == nil { fail("stashResult sse") }
+    if stashResult(Data(String(format: reply, #","isError":true"#).utf8)) != nil || stashResult(Data("{}".utf8)) != nil { fail("stashResult error") }
     if doing("Edit", ["file_path": "/a/b/main.swift"]) != "Editing main.swift" { fail("doing Edit") }
     if doing("Bash", ["command": "make test\nmore"]) != "Running make test" { fail("doing Bash") }
     if doing("mcp__stash__stash_capture", [:]) != "Using stash_capture" { fail("doing mcp") }

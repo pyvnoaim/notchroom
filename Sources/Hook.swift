@@ -81,7 +81,7 @@ func log(_ fields: [String]) {
 }
 
 func hook() {
-    // the room's own `claude -p` runs (ideas, filing to stash) must not show up as agents
+    // the room's own `claude -p` runs (ideas) must not show up as agents
     guard ProcessInfo.processInfo.environment["NOTCHROOM_NO_HOOK"] == nil,
           let ev = try? JSONSerialization.jsonObject(with: FileHandle.standardInput.readDataToEndOfFile()) as? [String: Any],
           let raw = ev["session_id"] as? String else { return }

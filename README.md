@@ -95,7 +95,7 @@ stash = stash
 All optional. notchroom works without any of them.
 
 - **Ghostty.** Clicking a character focuses the exact terminal it runs in, matched by directory; when several terminals share it, the session's terminal title briefly carries a marker to find the right one. macOS asks once whether notchroom may control Ghostty. VS Code-family editors open the project's window; other apps are brought to the front as a whole.
-- **stash.** If Claude Code has a `stash` MCP server (checked at launch; the name is the `stash` setting), clicking an idea files it; otherwise clicking copies it. Filing runs `claude -p` with one stash tool allowed at a time, so it uses the stash login Claude Code already has: it reads stash's project list, then files the idea as an idea (a task if it mentions a bug or security issue) under the stash project named exactly like the repo (`repo` for `group/repo`). With no such project, the card asks once where that repo's ideas go: one of your stash projects, a new one, or Inbox. The pick is kept in `~/.claude/notchroom/stash-places.json`; the card's "going to …" line changes it. It only leaves the desk once stash has added it; if stash read it differently (its parser also picks up words like `today` or `!`), the card says so.
+- **stash.** If Claude Code has a `stash` MCP server over HTTP (added with `claude mcp add --transport http stash …`, in any scope; the name is the `stash` setting), clicking an idea files it; otherwise, or when filing fails, clicking copies it. Filing calls that server directly, with the URL and sign-in header Claude Code keeps in `~/.claude.json`: no model, no cost, well under a second. The first time for a repo it reads stash's project list, then files the idea as an idea (a task if it mentions a bug or security issue) under the stash project named exactly like the repo (`repo` for `group/repo`). With no such project, the card asks once where that repo's ideas go: one of your stash projects, a new one, or Inbox. The pick is kept in `~/.claude/notchroom/stash-places.json`; the card's "going to …" line changes it. It only leaves the desk once stash has added it; if stash read it differently (its parser also picks up words like `today` or `!`), the card says so.
 - **resona.** The record player reads `~/.resona/now-playing`, which resona writes whenever the song changes.
 
 ## How it works
@@ -129,7 +129,8 @@ What this can't stop is something that already controls your Mac as you, for exa
 Two things leave your Mac:
 
 - **Weather**, every ten minutes, from [open-meteo](https://open-meteo.com) (no account, no key). The request carries your time zone's city coordinates, rounded to a tenth of a degree.
-- **Ideas and filing to stash** go through `claude -p` with your own Claude Code login: the first 3 KB of each project's README and its last twelve commit messages, about one small Haiku request per desk per day. These runs have no tools (or one stash tool at a time), so they can't read or change anything else.
+- **Ideas** go through `claude -p` with your own Claude Code login: the first 3 KB of each project's README and its last twelve commit messages, about one small Haiku request per desk per day. These runs have no tools, so they can't read or change anything.
+- **Filing to stash** sends the idea, and its project, to your own stash MCP server, signed in with the header from your Claude Code config. That header goes nowhere else.
 
 Everything else stays in `~/.claude/notchroom`.
 

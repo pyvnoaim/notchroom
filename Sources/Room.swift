@@ -473,7 +473,7 @@ final class Room: NSView {
                 if !b.idea { drawBubble(b.text, at: a, icon: nil) }
                 else {
                     let status = filing[b.text], open = onDesk || pointingAtBubble
-                    let r = open ? drawBubble(b.text, at: a, icon: bulb, hint: status ?? (stashReady != false ? "click: file in stash · ⌥click: skip" : "click: copy · ⌥click: skip"))
+                    let r = open ? drawBubble(b.text, at: a, icon: bulb, hint: status ?? (stashReady ? "click: file in stash · ⌥click: skip" : "click: copy · ⌥click: skip"))
                                  : drawBubble("…", at: a, icon: bulb)
                     if open, status == nil { clicks.append((r, { [weak self] in
                         if NSEvent.modifierFlags.contains(.option) { self?.skip(b.text, b.project) } else { self?.file(b.text, b.project) }
