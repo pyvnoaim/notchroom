@@ -69,6 +69,7 @@ func runApp() {
     }
     NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { e in layout(); return e }
 
+    checkStash()
     func everyMinute() {
         refreshIdeas(room.desks)
         let recent = recentProjects()

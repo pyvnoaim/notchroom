@@ -11,6 +11,7 @@ let partyFile = dir.appendingPathComponent("party")
 ///   projects = ~/dev           the folder that holds your repos; each recently touched one gets a desk
 ///   skip = old-thing, scratch  repos that never get a desk
 ///   sound = Glass              played when a session starts needing you: a name from /System/Library/Sounds, or off
+///   stash = stash              the Claude Code MCP server ideas get filed through, or off; without one a click copies
 let config: [String: String] = {
     let text = (try? String(contentsOf: dir.appendingPathComponent("config"), encoding: .utf8)) ?? ""
     var out: [String: String] = [:]
@@ -23,6 +24,7 @@ let config: [String: String] = {
 let devDir = URL(fileURLWithPath: ((config["projects"] ?? "~/dev") as NSString).expandingTildeInPath)
 let skipProjects = Set((config["skip"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
 let alertSound = config["sound"] ?? "Glass"
+let stashServer = config["stash"] == "off" ? nil : config["stash"] ?? "stash"
 let approveWait: TimeInterval = 20 // ponytail: how long a permission request waits for the notch before the terminal gets it
 
 func mtime(_ path: String) -> Date? { (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date }

@@ -25,6 +25,7 @@ final class Room: NSView {
     var recentRank: [String: Int] = [:]
     var ideas: [String: [String]] = [:]
     var filing: [String: String] = [:] // idea -> "filing…" / "filed" / "couldn't file"
+    var picking: [String: (idea: String, names: [String])] = [:] // project -> the idea waiting on where its repo files to
     var growth: [String: (commits: Int, released: Bool)] = [:]
     var bubble: (project: String, text: String, idea: Bool)?, bubbleUntil = Date.distantPast
     // everywhere the current bubble has been drawn (puff and full, which may sit on different sides of its speaker):
@@ -472,7 +473,7 @@ final class Room: NSView {
                 if !b.idea { drawBubble(b.text, at: a, icon: nil) }
                 else {
                     let status = filing[b.text], open = onDesk || pointingAtBubble
-                    let r = open ? drawBubble(b.text, at: a, icon: bulb, hint: status ?? "click: file in stash · ⌥click: skip")
+                    let r = open ? drawBubble(b.text, at: a, icon: bulb, hint: status ?? (stashReady != false ? "click: file in stash · ⌥click: skip" : "click: copy · ⌥click: skip"))
                                  : drawBubble("…", at: a, icon: bulb)
                     if open, status == nil { clicks.append((r, { [weak self] in
                         if NSEvent.modifierFlags.contains(.option) { self?.skip(b.text, b.project) } else { self?.file(b.text, b.project) }

@@ -27,6 +27,14 @@ func test() {
     try? FileManager.default.removeItem(atPath: tmp)
     let got = cleanIdeas("Here you go\n- Add 2FA login\n2. Dark mode — per page\n\n* " + String(repeating: "x", count: 95))
     if got != ["Here you go", "Add 2FA login", "Dark mode: per page"] { fail("cleanIdeas -> \(got)") }
+    for (idea, want) in [("Dark mode per page", "idea"), ("Fix crash on empty README", "task"), ("Add XSS checks", "task"),
+                         ("Prefix search", "idea"), ("Secure share links", "idea"), ("Test fixtures", "idea")] where stashType(idea) != want { fail("stashType(\(idea))") }
+    if stashProject("group/Repo", in: ["repo-old", "repo"]) != "repo" { fail("stashProject nested") }
+    if stashProject("notchroom", in: ["notch", "Notch Room"]) != nil { fail("stashProject none") }
+    if repoProject("group/my.repo") != nil || repoProject("group/my-repo") != "my-repo" { fail("repoProject") }
+    let result = #"{"type":"user","message":{"content":[{"type":"tool_result","is_error":%@,"content":[{"type":"text","text":"{\"added\":[]}"}]}]}}"#
+    if toolResults("{\"type\":\"system\"}\n" + String(format: result, "false")).first?["added"] == nil { fail("toolResults ok") }
+    if !toolResults(String(format: result, "true")).isEmpty { fail("toolResults error") }
     if doing("Edit", ["file_path": "/a/b/main.swift"]) != "Editing main.swift" { fail("doing Edit") }
     if doing("Bash", ["command": "make test\nmore"]) != "Running make test" { fail("doing Bash") }
     if doing("mcp__stash__stash_capture", [:]) != "Using stash_capture" { fail("doing mcp") }

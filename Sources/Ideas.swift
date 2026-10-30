@@ -71,14 +71,98 @@ func refreshIdeas(_ projects: [String]) {
     }
 }
 
-/// Files an idea as a stash item through the stash MCP that Claude Code already signs into; only that one tool is allowed.
-/// A filed idea leaves the desk.
-func fileIdea(_ project: String, _ idea: String, done: @escaping (Bool) -> Void) {
-    let line = "\(idea) @\(project) #idea"
-    _ = claudeRun(["claude", "-p", "--model", "haiku", "--tools", "", "--allowedTools", "mcp__stash__stash_capture",
-                   "--no-session-persistence", "Call stash_capture once to add exactly this one line to stash, then reply ok. The line: \(line)"]) { ok, _ in
-        if ok { dropIdea(project, idea) }
-        done(ok)
+/// Bugs and security issues are work to do, so they go in as tasks; everything else is an idea.
+// ponytail: keyword match, have the idea prompt tag its lines if this misses too often
+func stashType(_ idea: String) -> String {
+    idea.range(of: #"\b(bugs?|fix(es|ed|ing)?|crash(es|ed|ing)?|security|vulnerab\w*|exploits?|leak(s|ed|ing)?|xss|csrf|injection|sanitiz\w*)\b"#,
+               options: [.regularExpression, .caseInsensitive]) == nil ? "idea" : "task"
+}
+
+/// Whether stash's `@` can reach a project by this name: a single word.
+func stashWord(_ name: String) -> Bool { name.range(of: #"^[\p{L}\p{M}\p{N}_-]+$"#, options: .regularExpression) != nil }
+
+/// The stash project a repo's ideas go under: named like the repo (`group/repo` -> `repo`), if stash can reach it.
+func repoProject(_ project: String) -> String? {
+    let repo = String(project.split(separator: "/").last ?? "")
+    return stashWord(repo) ? repo : nil
+}
+
+/// The existing stash project named exactly like the repo, or none (Inbox).
+func stashProject(_ project: String, in names: [String]) -> String? {
+    guard let repo = repoProject(project)?.lowercased() else { return nil }
+    return names.first { $0.lowercased() == repo }
+}
+
+/// Whether the configured stash MCP server is set up in Claude Code; checked once at launch, a new one needs a restart.
+/// Until the check answers, clicks file (and fail plainly if it isn't there), so a quick click is never just copied.
+var stashReady: Bool? = stashServer == nil ? false : nil
+func checkStash() {
+    guard let server = stashServer else { return }
+    _ = claudeRun(["claude", "mcp", "get", server]) { ok, _ in stashReady = ok }
+}
+
+/// The parsed JSON of each tool result in a `--output-format stream-json` run, errors left out.
+func toolResults(_ stream: String) -> [[String: Any]] {
+    func json(_ s: String) -> [String: Any]? { try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any] }
+    return stream.split(separator: "\n").flatMap { line -> [[String: Any]] in
+        guard let ev = json(String(line)), ev["type"] as? String == "user",
+              let content = (ev["message"] as? [String: Any])?["content"] as? [[String: Any]] else { return [] }
+        return content.filter { $0["type"] as? String == "tool_result" && $0["is_error"] as? Bool != true }.compactMap { r in
+            json(r["content"] as? String ?? (r["content"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined() ?? "")
+        }
+    }
+}
+
+/// One stash tool call through the stash MCP that Claude Code already signs into, with exactly these arguments;
+/// only that one tool is allowed. Hands back what stash answered, nil if it never did.
+func stashCall(_ tool: String, _ args: [String: Any], done: @escaping ([String: Any]?) -> Void) {
+    guard let server = stashServer else { return done(nil) }
+    let json = String(decoding: (try? JSONSerialization.data(withJSONObject: args, options: .sortedKeys)) ?? Data(), as: UTF8.self)
+    _ = claudeRun(["claude", "-p", "--model", "haiku", "--tools", "", "--allowedTools", "mcp__\(server)__\(tool)",
+                   "--output-format", "stream-json", "--verbose", "--no-session-persistence",
+                   "Call \(tool) once with exactly these arguments, then reply ok: \(json)"]) { ok, out in
+        done(ok ? toolResults(out).first : nil)
+    }
+}
+
+/// Where each repo's ideas go in stash, as picked in its card: a stash project, or "" for Inbox.
+let placesFile = dir.appendingPathComponent("stash-places.json")
+var stashPlaces = json(placesFile) as? [String: String] ?? [:]
+func rememberPlace(_ project: String, _ place: String?) {
+    stashPlaces[project] = place
+    try? JSONSerialization.data(withJSONObject: stashPlaces, options: .sortedKeys).write(to: placesFile)
+}
+
+enum Filed { case yes, misfiled, no, ask([String]) }
+
+/// Files an idea in stash: as an idea (a task if it's a bug or security issue), where its repo's ideas were picked to
+/// go, else under the stash project named like the repo. With neither, it asks, handing back the project names stash's
+/// `@` can reach. `names` skips reading them again when the caller just had them.
+/// Once stash has added it, it leaves the desk even if stash read it differently (`misfiled`): a retry would only
+/// add a second copy.
+// ponytail: stash's capture parser also reads `today`, `fri`, `!`, `#x`, `@x` inside the idea; needs a raw-text
+// option on stash_capture to stop
+func fileIdea(_ project: String, _ idea: String, names: [String]? = nil, done: @escaping (Filed) -> Void) {
+    let type = stashType(idea)
+    func capture(_ proj: String?) {
+        stashCall("stash_capture", ["text": idea + (proj.map { " @\($0)" } ?? ""), "type": type]) { got in
+            guard let item = (got?["added"] as? [[String: Any]])?.first else { return done(.no) }
+            dropIdea(project, idea)
+            done(item["type"] as? String == type && (item["project"] as? String)?.lowercased() == proj?.lowercased() ? .yes : .misfiled)
+        }
+    }
+    if stashPlaces[project] == "" { return capture(nil) } // Inbox needs no project list
+    func place(_ names: [String]) {
+        let names = names.filter(stashWord)
+        if let p = stashPlaces[project], let have = names.first(where: { $0.lowercased() == p.lowercased() }) { return capture(have) }
+        // picked as a new project: made the first time (or again, if it was deleted in stash since)
+        if let p = stashPlaces[project], p == repoProject(project) { return stashCall("stash_project", ["name": p]) { $0 == nil ? done(.no) : capture(p) } }
+        if let p = stashProject(project, in: names) { capture(p) } else { done(.ask(names)) }
+    }
+    if let names { return place(names) }
+    stashCall("stash_read", ["view": "inbox", "limit": 0]) { read in
+        guard let names = (read?["projects"] as? [[String: Any]])?.compactMap({ $0["name"] as? String }) else { return done(.no) }
+        place(names)
     }
 }
 
