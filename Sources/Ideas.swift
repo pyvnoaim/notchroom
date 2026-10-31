@@ -23,7 +23,7 @@ cd "$1" || exit 1
 { printf 'Project: %s\\n\\nREADME:\\n' "$2"; head -c 3000 README.md 2>/dev/null; printf '\\n\\nRecent commits:\\n'; git log -12 --format=%s 2>/dev/null; } |
 claude -p --model haiku --tools "" --no-session-persistence "You are brainstorming for a solo developer. Based on the project info on stdin, \
 suggest 5 small, concrete features or improvements they could add next. Each under 60 characters, plain text, one per line, \
-no numbering, no bullets, no intro, no em dashes."
+no numbering, no bullets, no intro, no em dashes. Leave out anything the recent commits show is already done."
 """
 
 /// A `claude -p` run that the room's own hook ignores, with the usual places claude lives on PATH.
@@ -51,13 +51,16 @@ func claudeRun(_ args: [String], done: @escaping (Bool, String) -> Void) -> Proc
 var ideaRun: Process?
 var lastTry: [String: Date] = [:]
 
-/// Asks for ideas for one desk at a time: each project at most once a day, and once an hour after a failure.
+/// Asks for ideas for one desk at a time: each project once a day, or sooner after a commit so built ideas go;
+/// at most once an hour per project either way.
 func refreshIdeas(_ projects: [String]) {
     guard ideaRun == nil else { return }
     let stale = projects.first { p in
         guard FileManager.default.fileExists(atPath: "\(devDir.path)/\(p)/.git"),
               Date().timeIntervalSince(lastTry[p] ?? .distantPast) > 3600 else { return false }
-        return Date().timeIntervalSince(mtime(ideasFile(p).path) ?? .distantPast) > 86400
+        let made = mtime(ideasFile(p).path) ?? .distantPast
+        // ponytail: git touches logs/HEAD on checkout and pull too, which refreshes early; harmless, capped hourly
+        return Date().timeIntervalSince(made) > 86400 || (mtime("\(devDir.path)/\(p)/.git/logs/HEAD") ?? .distantPast) > made
     }
     guard let p = stale else { return }
     lastTry[p] = Date()
