@@ -59,6 +59,9 @@ extension Room {
         if c.buttons.isEmpty {
             c.buttons = (here.first?.pid.map { pid in [(openLabel(pid), UInt32(0x8a80a8), { focusTerminal(pid) })] } ?? [])
                 + [("New session", 0x5fd38d, { newSession(proj, in: here.first?.pid.flatMap(hostApp)) })]
+                // a session already in VS Code has its own Open button above
+                + (here.first?.pid.flatMap(hostApp)?.bundleIdentifier == "com.microsoft.VSCode" ? []
+                   : vscode.map { app in [("VS Code", UInt32(0x8a80a8), { openIn(proj, app) })] } ?? [])
         }
         let list = ideas[proj] ?? []
         if let pick = picking[proj] {

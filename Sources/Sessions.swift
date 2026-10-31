@@ -100,6 +100,14 @@ func newSession(_ project: String, in app: NSRunningApplication? = nil) {
     try? run.run()
 }
 
+/// VS Code, when installed.
+let vscode = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode")
+
+/// Opens a project's folder in an app; VS Code reuses the folder's window when it has one.
+func openIn(_ project: String, _ app: URL) {
+    NSWorkspace.shared.open([devDir.appendingPathComponent(project)], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+}
+
 /// A process's parent, from the kernel's process table. Unlike proc_pidinfo this also works across processes owned
 /// by root, such as the `login` that sits between a terminal app and its shells.
 func parent(_ pid: Int32) -> Int32? { kinfo(pid)?.kp_eproc.e_ppid }
